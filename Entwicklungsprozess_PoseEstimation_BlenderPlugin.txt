@@ -1,0 +1,71 @@
+﻿Entwicklungsprozess für ein Pose-Estimation-basiertes Assistenzsystem als Blender-Plugin
+Dieses Dokument beschreibt einen möglichen Entwicklungsprozess für ein Assistenzsystem, bei dem Pose Estimation zur Steuerung eines Blender-Plugins verwendet wird. Die Aufgabe wird dabei in allgemeine, klar definierte und durchführbare Zwischenschritte unterteilt, ohne konkrete technische Entscheidungen vorzugeben. Bereits festgelegte Grundfunktionen des Systems werden dabei berücksichtigt.
+1. Zieldefinition und Aufgabenanalyse
+* Ziel und Anwendungsbereich des Systems beschreiben.
+* Festlegen, welche Nutzergruppen angesprochen werden sollen.
+* Mögliche Interaktionen und Assistenzfunktionen sammeln.
+* Rahmenbedingungen und Einschränkungen dokumentieren.
+2. Analyse des Nutzungskontexts
+* Untersuchen, in welchen Situationen das System verwendet wird.
+* Arbeitsabläufe innerhalb von Blender analysieren.
+* Mögliche Eingabeformen und Nutzerinteraktionen identifizieren.
+* Umgebungsbedingungen und Anforderungen an die Nutzung erfassen.
+3. Definition der Systemfunktionen
+* Benötigte Funktionen des Assistenzsystems auflisten.
+* Eingaben, Verarbeitungen und Ausgaben beschreiben.
+* Mögliche Aktionen innerhalb von Blender definieren.
+* Zusammenhänge zwischen Gesten und Systemreaktionen dokumentieren.
+* Die linke Hand wird für Kamerasteuerung und Navigation innerhalb des 3D-Viewports verwendet.
+* Die rechte Hand wird zur Werkzeug- und Pinselsteuerung verwendet.
+* Eine Webcam dient als Videoquelle für die Pose-Estimation.
+4. Zerlegung in Teilsysteme
+* Das Gesamtsystem in funktionale Komponenten aufteilen.
+* Kommunikation zwischen den Komponenten beschreiben.
+* Datenflüsse und Schnittstellen dokumentieren.
+* Abhängigkeiten zwischen Modulen identifizieren.
+5. Planung der Pose-Estimation-Komponente
+* Anforderungen an die Bewegungserkennung definieren.
+* Zu erfassende Körperbereiche und Bewegungen beschreiben.
+* Datenquellen und Eingabesignale analysieren.
+* Mögliche Qualitätskriterien für die Erkennung festlegen.
+* Die Verarbeitung des Webcam-Videofeeds wird als Teil der Eingabekette berücksichtigt.
+* Linke und rechte Hand werden getrennt erkannt und unterschiedlichen Funktionen zugeordnet.
+6. Planung der Blender-Integration
+* Mögliche Integrationspunkte innerhalb von Blender identifizieren.
+* Benötigte Plugin-Funktionen beschreiben.
+* Kommunikationswege zwischen Erkennungssystem und Blender definieren.
+* Mögliche Benutzeroberflächen und Bedienelemente skizzieren.
+* Kamerasteuerung und Werkzeugsteuerung werden als getrennte Interaktionsbereiche betrachtet.
+* Die Zuordnung von Gesten zu Blender-Funktionen wird dokumentiert.
+7. Entwurf der Benutzungsschnittstelle
+* Informationsdarstellung und Rückmeldungen planen.
+* Interaktionsabläufe beschreiben.
+* Anforderungen aus ISO 9241-110 und weiteren HCI-Regeln berücksichtigen.
+* Fehlermeldungen, Statusanzeigen und Hilfefunktionen definieren.
+8. Erstellung eines Prototyps
+* Einen ersten funktionsfähigen Prototyp entwickeln.
+* Grundlegende Interaktionen implementieren.
+* Einzelne Komponenten schrittweise integrieren.
+* Zwischenergebnisse dokumentieren.
+9. Test und Evaluation
+* Testfälle und Evaluationskriterien definieren.
+* Funktionalität und Stabilität überprüfen.
+* Nutzerfeedback sammeln.
+* Probleme und Verbesserungspotenziale dokumentieren.
+10. Iterative Verbesserung
+* Ergebnisse aus Tests auswerten.
+* Schwachstellen identifizieren.
+* Interaktionen und Benutzerführung optimieren.
+* System schrittweise erweitern oder anpassen.
+11. Dokumentation
+* Systemarchitektur dokumentieren.
+* Entscheidungen und Entwicklungsstand festhalten.
+* Benutzeranleitung und technische Dokumentation erstellen.
+* Test- und Evaluationsergebnisse zusammenfassen.
+12. Abschluss und Präsentation
+* Finalen Systemstand vorbereiten.
+* Demonstration und Präsentation planen.
+* Wichtigste Funktionen und Ergebnisse strukturieren.
+* Reflexion über Grenzen und mögliche Erweiterungen vorbereiten.
+
+Die einzelnen Schritte können je nach Projektumfang, Zeitrahmen und technischer Umsetzung iterativ oder parallel durchgeführt werden. Ziel dieser Struktur ist eine nachvollziehbare Aufteilung der Gesamtaufgabe in klar definierte Entwicklungsphasen.
