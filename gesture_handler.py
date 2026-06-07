@@ -112,7 +112,9 @@ class CameraGestureHandler:
         """
         from . import pose_estimator
         action_type = 'PAN_RIGHT' if delta_x > 0 else 'PAN_LEFT'
-        pose_estimator.queue_action(action_type, {"amount": int(abs(delta_x) * 0.5)})
+        amount = int(abs(delta_x) * 0.5)
+        pose_estimator.queue_action(action_type, {"amount": amount})
+        print(f"[Gesture] {action_type} (+{amount})")
 
     def _pan_camera_vertical(self, delta_y: float):
         """
@@ -123,7 +125,9 @@ class CameraGestureHandler:
         """
         from . import pose_estimator
         action_type = 'PAN_UP' if delta_y < 0 else 'PAN_DOWN'
-        pose_estimator.queue_action(action_type, {"amount": int(abs(delta_y) * 0.5)})
+        amount = int(abs(delta_y) * 0.5)
+        pose_estimator.queue_action(action_type, {"amount": amount})
+        print(f"[Gesture] {action_type} (+{amount})")
 
     def zoom_camera(self, direction: int, amount: float = 0.1):
         """
