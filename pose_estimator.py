@@ -117,49 +117,45 @@ class PoseEstimator:
         self._image_height = 0
         self.debug = debug_window
 
+        self.pose = None
+        self.hands = None
+
         try:
             import pathlib
-            import urllib.request
-
-            model_dir = pathlib.Path.home() / ".mediapipe_models"
+            model_dir = pathlib.Path(__file__).parent / "models"
             model_dir.mkdir(exist_ok=True)
 
-            pose_model_path = model_dir / "pose_landmarker.task"
-            hand_model_path = model_dir / "hand_landmarker.task"
+            pose_model = model_dir / "pose_landmarker_lite.task"
+            hand_model = model_dir / "hand_landmarker.task"
 
-            pose_url = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite.task"
-            hand_url = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker.task"
+            if pose_model.exists() and hand_model.exists():
+                try:
+                    base_options_pose = tasks.BaseOptions(model_asset_path=str(pose_model))
+                    options = tasks.vision.PoseLandmarkerOptions(
+                        base_options=base_options_pose,
+                        running_mode=VisionTaskRunningMode.IMAGE
+                    )
+                    self.pose = PoseLandmarker.create_from_options(options)
 
-            if not pose_model_path.exists():
-                print("[Init] Downloading pose model...")
-                urllib.request.urlretrieve(pose_url, pose_model_path)
-                print("[Init] Pose model downloaded")
-
-            if not hand_model_path.exists():
-                print("[Init] Downloading hand model...")
-                urllib.request.urlretrieve(hand_url, hand_model_path)
-                print("[Init] Hand model downloaded")
-
-            base_options_pose = tasks.BaseOptions(model_asset_path=str(pose_model_path))
-            options = tasks.vision.PoseLandmarkerOptions(
-                base_options=base_options_pose,
-                running_mode=VisionTaskRunningMode.IMAGE
-            )
-            self.pose = PoseLandmarker.create_from_options(options)
-
-            base_options_hand = tasks.BaseOptions(model_asset_path=str(hand_model_path))
-            hand_options = tasks.vision.HandLandmarkerOptions(
-                base_options=base_options_hand,
-                running_mode=VisionTaskRunningMode.IMAGE
-            )
-            self.hands = HandLandmarker.create_from_options(hand_options)
-            print("[Init] MediaPipe models loaded successfully")
+                    base_options_hand = tasks.BaseOptions(model_asset_path=str(hand_model))
+                    hand_options = tasks.vision.HandLandmarkerOptions(
+                        base_options=base_options_hand,
+                        running_mode=VisionTaskRunningMode.IMAGE
+                    )
+                    self.hands = HandLandmarker.create_from_options(hand_options)
+                    print("[Init] MediaPipe models loaded from local files")
+                except Exception as e:
+                    print(f"Error loading local models: {e}")
+            else:
+                print(f"[Init] Model files not found in {model_dir}")
+                if not pose_model.exists():
+                    print(f"  Missing: {pose_model.name}")
+                if not hand_model.exists():
+                    print(f"  Missing: {hand_model.name}")
         except Exception as e:
             print(f"Error initializing MediaPipe models: {e}")
             import traceback
             traceback.print_exc()
-            self.pose = None
-            self.hands = None
 
     def _setup_mediapipe_params(self) -> Dict:
         """
@@ -253,52 +249,41 @@ class PoseEstimator:
         return left_pos, left_conf, right_pos, right_conf
 
     def _extract_hands_from_results(self, hands_results, width: int, height: int) -> Tuple[Optional[np.ndarray], float, Optional[np.ndarray], float, dict]:
-        """
-        Extract hand landmarks and handedness confidences from MediaPipe Hands results.
-
-        Returns left_landmarks_px, left_conf, right_landmarks_px, right_conf, misc
-        misc may contain handedness labels and original landmarks.
-        """
+        """Extract hand landmarks from MediaPipe Hands results."""
         left_landmarks = None
         right_landmarks = None
         left_conf = 0.0
         right_conf = 0.0
         misc = {}
 
-        if hands_results is None or hands_results.multi_hand_landmarks is None:
+        if hands_results is None or not hands_results.hand_landmarks:
             return None, 0.0, None, 0.0, misc
 
-        # Map each detected hand to left/right using classification
-        for idx, hand_landmarks in enumerate(hands_results.multi_hand_landmarks):
-            # classification info
-            label = None
-            score = 0.0
-            try:
-                classif = hands_results.multi_handedness[idx]
-                label = classif.classification[0].label
-                score = float(classif.classification[0].score)
-            except Exception:
+        try:
+            for idx, hand_lm in enumerate(hands_results.hand_landmarks):
                 label = None
                 score = 0.0
 
-            # convert landmarks to pixel coords
-            lm_arr = []
-            for lm in hand_landmarks.landmark:
-                x = float(np.clip(lm.x, 0.0, 1.0) * width)
-                y = float(np.clip(lm.y, 0.0, 1.0) * height)
-                z = float(lm.z)
-                lm_arr.append([x, y, z])
-            lm_arr = np.array(lm_arr, dtype=np.float32)
+                if idx < len(hands_results.handedness) and hands_results.handedness[idx]:
+                    category = hands_results.handedness[idx][0]
+                    label = category.category_name
+                    score = float(category.score)
 
-            if label == 'Left':
-                left_landmarks = lm_arr
-                left_conf = score
-            elif label == 'Right':
-                right_landmarks = lm_arr
-                right_conf = score
-            else:
-                # If no label, attempt heuristic by x position
-                if lm_arr.shape[0] > 0:
+                try:
+                    lm_arr = np.array([
+                        [float(lm.x * width), float(lm.y * height), float(lm.z)]
+                        for lm in hand_lm.landmark
+                    ], dtype=np.float32)
+                except (AttributeError, TypeError):
+                    continue
+
+                if label == 'Left':
+                    left_landmarks = lm_arr
+                    left_conf = score
+                elif label == 'Right':
+                    right_landmarks = lm_arr
+                    right_conf = score
+                else:
                     cx = float(np.mean(lm_arr[:, 0]))
                     if cx < width / 2:
                         left_landmarks = lm_arr
@@ -306,8 +291,9 @@ class PoseEstimator:
                     else:
                         right_landmarks = lm_arr
                         right_conf = max(right_conf, score)
+        except Exception as e:
+            print(f"Hand extraction error: {e}")
 
-        misc['raw'] = hands_results
         return left_landmarks, left_conf, right_landmarks, right_conf, misc
 
     def _compute_palm_orientation(self, hand_lm: np.ndarray) -> Optional[Tuple[float, float, float]]:
@@ -334,7 +320,7 @@ class PoseEstimator:
 
     def _process_frame(self, frame: np.ndarray, frame_number: int) -> PoseDetectionState:
         """
-        Process single video frame through MediaPipe.
+        Process single video frame through MediaPipe or OpenCV fallback.
 
         Args:
             frame: Input video frame (BGR format)
@@ -343,21 +329,24 @@ class PoseEstimator:
         Returns:
             Updated PoseDetectionState with detected positions
         """
-        from mediapipe.tasks.python.vision.core.image import Image, ImageFormat
-
         self._image_height, self._image_width = frame.shape[:2]
-
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        mp_image = Image(image_format=ImageFormat.SRGB, data=frame_rgb)
-
         state = PoseDetectionState()
         state.timestamp = frame_number
 
+        if self.pose is None or self.hands is None:
+            print("[Warning] MediaPipe models not loaded. Using fallback hand detection.")
+            return self._process_frame_fallback(frame, frame_number)
+
         try:
+            from mediapipe.tasks.python.vision.core.image import Image, ImageFormat
+
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            mp_image = Image(image_format=ImageFormat.SRGB, data=frame_rgb)
+
             pose_results = self.pose.detect(mp_image)
 
-            if pose_results and pose_results.landmarks:
-                landmarks_list = pose_results.landmarks[0]
+            if pose_results and pose_results.pose_landmarks:
+                landmarks_list = pose_results.pose_landmarks[0]
 
                 pose_keypoints = np.array([
                     [float(lm.x * self._image_width),
@@ -390,11 +379,11 @@ class PoseEstimator:
                 if l_hands is not None and l_hands.shape[0] >= 1:
                     lw = (float(l_hands[0, 0]), float(l_hands[0, 1]))
                     left_pos = lw
-                    left_conf = max(left_conf, l_conf_h)
+                    left_conf = l_conf_h
                 if r_hands is not None and r_hands.shape[0] >= 1:
                     rw = (float(r_hands[0, 0]), float(r_hands[0, 1]))
                     right_pos = rw
-                    right_conf = max(right_conf, r_conf_h)
+                    right_conf = r_conf_h
 
                 state.left_hand_landmarks = l_hands
                 state.right_hand_landmarks = r_hands
@@ -426,72 +415,60 @@ class PoseEstimator:
             print(f"Error processing frame: {e}")
 
         if self.debug:
-            disp = frame.copy()
-            try:
-                if state.left_hand_confidence > 0:
-                    lx, ly = int(state.left_hand_pos[0]), int(state.left_hand_pos[1])
-                    cv2.circle(disp, (lx, ly), 8, (0, 255, 0), -1)
-                    cv2.putText(disp, f"L:{state.left_hand_confidence:.2f}", (lx+10, ly), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
-                if state.right_hand_confidence > 0:
-                    rx, ry = int(state.right_hand_pos[0]), int(state.right_hand_pos[1])
-                    cv2.circle(disp, (rx, ry), 8, (0, 0, 255), -1)
-                    cv2.putText(disp, f"R:{state.right_hand_confidence:.2f}", (rx+10, ry), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,255), 1)
+            disp = cv2.flip(frame.copy(), 1)
+            cv2.putText(disp, f"L: {state.left_hand_confidence:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            cv2.putText(disp, f"R: {state.right_hand_confidence:.2f}", (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
-                try:
-                    from mediapipe.tasks.python.vision import HandLandmarker
-                    hand_connections = [
-                        (0, 1), (1, 2), (2, 3), (3, 4),
-                        (0, 5), (5, 6), (6, 7), (7, 8),
-                        (5, 9), (9, 10), (10, 11), (11, 12),
-                        (9, 13), (13, 14), (14, 15), (15, 16),
-                        (13, 17), (17, 18), (18, 19), (19, 20),
-                        (0, 17), (0, 13), (0, 9), (0, 5),
-                    ]
-                except Exception:
-                    hand_connections = []
+            lx = int(self._image_width - state.left_hand_pos[0]) if state.left_hand_confidence > 0 else -1
+            ly = int(state.left_hand_pos[1]) if state.left_hand_confidence > 0 else -1
+            if lx > 0 and ly > 0:
+                cv2.circle(disp, (lx, ly), 8, (0, 255, 0), -1)
 
-                def _draw_hand_landmarks(arr, color=(0,255,0)):
-                    for i in range(arr.shape[0]):
-                        x, y = int(arr[i,0]), int(arr[i,1])
-                        cv2.circle(disp, (x, y), 3, color, -1)
-                    for a, b in hand_connections:
-                        try:
-                            xa, ya = int(arr[a,0]), int(arr[a,1])
-                            xb, yb = int(arr[b,0]), int(arr[b,1])
-                            cv2.line(disp, (xa, ya), (xb, yb), color, 1)
-                        except Exception:
-                            pass
+            rx = int(self._image_width - state.right_hand_pos[0]) if state.right_hand_confidence > 0 else -1
+            ry = int(state.right_hand_pos[1]) if state.right_hand_confidence > 0 else -1
+            if rx > 0 and ry > 0:
+                cv2.circle(disp, (rx, ry), 8, (0, 0, 255), -1)
 
-                if state.left_hand_landmarks is not None:
-                    _draw_hand_landmarks(state.left_hand_landmarks, color=(0,200,0))
-                    for i, (fx, fy) in (state.left_fingertips or {}).items():
-                        cv2.circle(disp, (int(fx), int(fy)), 5, (0,255,0), 1)
-                    if state.left_palm_orientation is not None:
-                        cx = int(state.left_hand_landmarks[:,0].mean())
-                        cy = int(state.left_hand_landmarks[:,1].mean())
-                        nx, ny, nz = state.left_palm_orientation
-                        ox = int(cx + nx * 40)
-                        oy = int(cy + ny * 40)
-                        cv2.arrowedLine(disp, (cx, cy), (ox, oy), (0,255,0), 2)
-
-                if state.right_hand_landmarks is not None:
-                    _draw_hand_landmarks(state.right_hand_landmarks, color=(0,0,200))
-                    for i, (fx, fy) in (state.right_fingertips or {}).items():
-                        cv2.circle(disp, (int(fx), int(fy)), 5, (0,0,255), 1)
-                    if state.right_palm_orientation is not None:
-                        cx = int(state.right_hand_landmarks[:,0].mean())
-                        cy = int(state.right_hand_landmarks[:,1].mean())
-                        nx, ny, nz = state.right_palm_orientation
-                        ox = int(cx + nx * 40)
-                        oy = int(cy + ny * 40)
-                        cv2.arrowedLine(disp, (cx, cy), (ox, oy), (0,0,255), 2)
-
-                cv2.imshow('Pose Debug', disp)
-                cv2.waitKey(1)
-            except Exception:
-                pass
+            cv2.imshow('Pose Debug', disp)
+            cv2.waitKey(1)
 
         self.current_state = state
+        return state
+
+    def _process_frame_fallback(self, frame: np.ndarray, frame_number: int) -> PoseDetectionState:
+        """Fallback hand detection using skin color detection."""
+        state = PoseDetectionState()
+        state.timestamp = frame_number
+
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        lower_skin = np.array([0, 20, 70], dtype=np.uint8)
+        upper_skin = np.array([20, 255, 255], dtype=np.uint8)
+        mask = cv2.inRange(hsv, lower_skin, upper_skin)
+
+        lower_skin2 = np.array([170, 20, 70], dtype=np.uint8)
+        upper_skin2 = np.array([180, 255, 255], dtype=np.uint8)
+        mask2 = cv2.inRange(hsv, lower_skin2, upper_skin2)
+        mask = cv2.bitwise_or(mask, mask2)
+
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        if len(contours) >= 2:
+            contours = sorted(contours, key=cv2.contourArea, reverse=True)[:2]
+            hands = []
+            for contour in contours:
+                M = cv2.moments(contour)
+                if M["m00"] != 0:
+                    cx = int(M["m10"] / M["m00"])
+                    cy = int(M["m01"] / M["m00"])
+                    hands.append((cx, cy))
+
+            if len(hands) >= 2:
+                state.left_hand_pos = tuple(hands[0]) if hands[0][0] < hands[1][0] else tuple(hands[1])
+                state.right_hand_pos = tuple(hands[1]) if hands[0][0] < hands[1][0] else tuple(hands[0])
+                state.left_hand_confidence = 0.5
+                state.right_hand_confidence = 0.5
+                state.is_valid = True
+
         return state
 
     def _capture_thread(self):
