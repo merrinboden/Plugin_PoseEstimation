@@ -456,6 +456,7 @@ class PoseEstimator:
         Reads frames from webcam, processes with MediaPipe, and queues results.
         Designed to run in separate thread without blocking Blender UI.
         """
+        print(f"[Thread] Opening webcam {self.webcam_index}...")
         cap = cv2.VideoCapture(self.webcam_index)
 
         if not cap.isOpened():
@@ -463,6 +464,7 @@ class PoseEstimator:
             self.is_running = False
             return
 
+        print(f"[Thread] Webcam opened successfully")
         frame_count = 0
 
         try:

@@ -55,7 +55,7 @@ class PoseEstimationPanel(bpy.types.Panel):
             row.operator(
                 "wm.stop_pose_estimation",
                 text="Stop Estimation",
-                icon='STOP'
+                icon='PAUSE'
             )
         else:
             row.operator(
@@ -151,54 +151,12 @@ class StartPoseEstimationOperator(bpy.types.Operator):
             self.report({'INFO'}, "Pose estimation started")
             print("[Pose Estimation] Started successfully")
 
-            # Register modal timer for continuous updates
-            wm = context.window_manager
-            self._timer = wm.event_timer_add(0.016, window=context.window)
-            wm.modal_handler_add(self)
-
-            return {'RUNNING_MODAL'}
+            return {'FINISHED'}
 
         except Exception as e:
             self.report({'ERROR'}, f"Failed to start: {str(e)}")
             print(f"[Pose Estimation] Error: {e}")
             return {'CANCELLED'}
-
-    def modal(self, context, event):
-        """
-        Handle modal timer events for continuous pose updates.
-
-        Fetches latest pose detection results and processes gestures
-        on each timer tick.
-
-        Args:
-            context: Blender context
-            event: Window event
-
-        Returns:
-            {'RUNNING_MODAL'} to continue, {'FINISHED'} when stopped
-        """
-        if event.type == 'TIMER':
-            # Get latest pose detection
-            pose = pose_estimator.get_pose()
-
-            if pose and pose.is_valid:
-                # Process gestures based on detected pose
-                gesture_handler.process_gesture(
-                    pose.left_hand_pos,
-                    pose.left_hand_confidence,
-                    pose.right_hand_pos,
-                    pose.right_hand_confidence,
-                    context.scene.pose_est_props.confidence_threshold,
-                    pose.timestamp
-                )
-
-        # Check if still active
-        if not context.scene.pose_est_props.is_active:
-            wm = context.window_manager
-            wm.event_timer_remove(self._timer)
-            return {'FINISHED'}
-
-        return {'RUNNING_MODAL'}
 
 
 class StopPoseEstimationOperator(bpy.types.Operator):
