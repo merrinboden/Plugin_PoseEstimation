@@ -468,19 +468,20 @@ class PoseEstimator:
                 ry = int(state.right_hand_pos[1])
                 cv2.circle(disp, (rx, ry), 6, (0, 0, 255), -1)
 
+            finger_connections = [
+                (0, 1), (1, 2), (2, 3), (3, 4),
+                (0, 5), (5, 6), (6, 7), (7, 8),
+                (0, 9), (9, 10), (10, 11), (11, 12),
+                (0, 13), (13, 14), (14, 15), (15, 16),
+                (0, 17), (17, 18), (18, 19), (19, 20)
+            ]
+
             if state.left_hand_landmarks is not None:
                 for i, lm in enumerate(state.left_hand_landmarks):
                     x = int(self._image_width - lm[0])
                     y = int(lm[1])
                     cv2.circle(disp, (x, y), 2, (0, 200, 0), -1)
 
-                finger_connections = [
-                    (0, 1), (1, 2), (2, 3), (3, 4),
-                    (0, 5), (5, 6), (6, 7), (7, 8),
-                    (0, 9), (9, 10), (10, 11), (11, 12),
-                    (0, 13), (13, 14), (14, 15), (15, 16),
-                    (0, 17), (17, 18), (18, 19), (19, 20)
-                ]
                 for a, b in finger_connections:
                     if a < len(state.left_hand_landmarks) and b < len(state.left_hand_landmarks):
                         p1 = (int(self._image_width - state.left_hand_landmarks[a][0]), int(state.left_hand_landmarks[a][1]))
@@ -670,6 +671,7 @@ class PoseEstimator:
 # Global instance
 _estimator: Optional[PoseEstimator] = None
 _gesture_thread: Optional[threading.Thread] = None
+_action_queue: queue.Queue = queue.Queue()  # Thread-safe queue for gesture actions
 
 
 def initialize_estimator(webcam_index: int = 0, confidence_threshold: float = 0.5, debug_visual: bool = False):
@@ -713,3 +715,19 @@ def update_config(confidence_threshold: float, smoothing_factor: float):
     """Update pose estimator configuration."""
     if _estimator:
         _estimator.update_config(confidence_threshold, smoothing_factor)
+
+
+def queue_action(action_type: str, data: Dict = None):
+    """Queue a gesture action to be executed in main thread."""
+    _action_queue.put({"type": action_type, "data": data or {}})
+
+
+def get_pending_actions():
+    """Get all pending gesture actions without blocking."""
+    actions = []
+    try:
+        while True:
+            actions.append(_action_queue.get_nowait())
+    except queue.Empty:
+        pass
+    return actions

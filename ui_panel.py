@@ -16,6 +16,75 @@ import bpy
 from . import pose_estimator, gesture_handler
 
 
+class GestureActionProcessor(bpy.types.Operator):
+    """Process queued gesture actions in main thread."""
+    bl_idname = "wm.process_gesture_actions"
+    bl_label = "Process Gesture Actions"
+
+    _timer = None
+
+    def modal(self, context, event):
+        if event.type == 'TIMER':
+            self._process_actions(context)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        wm = context.window_manager
+        self._timer = wm.event_timer_add(0.016, window=context.window)
+        wm.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def _process_actions(self, context):
+        """Process all queued gesture actions."""
+        actions = pose_estimator.get_pending_actions()
+        for action in actions:
+            try:
+                atype = action.get("type")
+                data = action.get("data", {})
+
+                if atype == 'PAN_LEFT':
+                    for area in context.screen.areas:
+                        if area.type == 'VIEW_3D':
+                            with context.temp_override(area=area):
+                                bpy.ops.view3d.pan(type='PANLEFT', value=data.get("amount", 10))
+                elif atype == 'PAN_RIGHT':
+                    for area in context.screen.areas:
+                        if area.type == 'VIEW_3D':
+                            with context.temp_override(area=area):
+                                bpy.ops.view3d.pan(type='PANRIGHT', value=data.get("amount", 10))
+                elif atype == 'PAN_UP':
+                    for area in context.screen.areas:
+                        if area.type == 'VIEW_3D':
+                            with context.temp_override(area=area):
+                                bpy.ops.view3d.pan(type='PANUP', value=data.get("amount", 10))
+                elif atype == 'PAN_DOWN':
+                    for area in context.screen.areas:
+                        if area.type == 'VIEW_3D':
+                            with context.temp_override(area=area):
+                                bpy.ops.view3d.pan(type='PANDOWN', value=data.get("amount", 10))
+                elif atype == 'ADJUST_BRUSH':
+                    if context.mode == 'SCULPT_MODE':
+                        brush = context.tool_settings.sculpt.brush
+                        if brush:
+                            delta = data.get("size_delta", 0)
+                            brush.size = max(1, min(500, brush.size + delta))
+                elif atype == 'SELECT_TOOL':
+                    if context.mode == 'SCULPT_MODE':
+                        tools = ['DRAW', 'DRAW_SHARP', 'DRAW_GRAB', 'GRAB', 'SMOOTH', 'CREASE']
+                        for area in context.screen.areas:
+                            if area.type == 'VIEW_3D':
+                                for region in area.regions:
+                                    if region.type == 'WINDOW':
+                                        with context.temp_override(area=area, region=region):
+                                            try:
+                                                bpy.ops.wm.tool_set_by_id(name="builtin_brush.sculpt.draw")
+                                            except:
+                                                pass
+
+            except Exception as e:
+                print(f"Error processing action {action}: {e}")
+
+
 class PoseEstimationPanel(bpy.types.Panel):
     """
     Main UI panel for pose estimation control in 3D viewport.
@@ -146,6 +215,9 @@ class StartPoseEstimationOperator(bpy.types.Operator):
             # Start estimation in background thread
             pose_estimator.start_estimation()
             pose_estimator.start_gesture_processing()
+
+            # Start action processor in main thread
+            bpy.ops.wm.process_gesture_actions()
 
             props.is_active = True
 
