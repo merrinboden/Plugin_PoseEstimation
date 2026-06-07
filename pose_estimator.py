@@ -270,27 +270,35 @@ class PoseEstimator:
                     score = float(category.score)
 
                 try:
+                    # Try direct iteration first (might be list of landmarks)
+                    try:
+                        landmarks_list = list(hand_lm.landmark) if hasattr(hand_lm, 'landmark') else list(hand_lm)
+                    except TypeError:
+                        landmarks_list = list(hand_lm)
+
                     lm_arr = np.array([
                         [float(lm.x * width), float(lm.y * height), float(lm.z)]
-                        for lm in hand_lm.landmark
+                        for lm in landmarks_list
                     ], dtype=np.float32)
-                except (AttributeError, TypeError):
+
+                    if label == 'Left':
+                        left_landmarks = lm_arr
+                        left_conf = score
+                    elif label == 'Right':
+                        right_landmarks = lm_arr
+                        right_conf = score
+                    else:
+                        # Fallback: determine hand side by centroid x position
+                        cx = float(np.mean(lm_arr[:, 0]))
+                        if cx < width / 2:
+                            left_landmarks = lm_arr
+                            left_conf = max(left_conf, score)
+                        else:
+                            right_landmarks = lm_arr
+                            right_conf = max(right_conf, score)
+                except (AttributeError, TypeError) as e:
                     continue
 
-                if label == 'Left':
-                    left_landmarks = lm_arr
-                    left_conf = score
-                elif label == 'Right':
-                    right_landmarks = lm_arr
-                    right_conf = score
-                else:
-                    cx = float(np.mean(lm_arr[:, 0]))
-                    if cx < width / 2:
-                        left_landmarks = lm_arr
-                        left_conf = max(left_conf, score)
-                    else:
-                        right_landmarks = lm_arr
-                        right_conf = max(right_conf, score)
         except Exception as e:
             print(f"Hand extraction error: {e}")
 
@@ -369,7 +377,10 @@ class PoseEstimator:
 
                 try:
                     hands_results = self.hands.detect(mp_image)
-                except Exception:
+                    if hands_results and hands_results.hand_landmarks:
+                        print(f"[Hand Detection] Found {len(hands_results.hand_landmarks)} hands")
+                except Exception as e:
+                    print(f"[Hand Detection] Error: {e}")
                     hands_results = None
 
                 l_hands, l_conf_h, r_hands, r_conf_h, misc = self._extract_hands_from_results(

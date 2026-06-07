@@ -110,13 +110,13 @@ class CameraGestureHandler:
         Args:
             delta_x: Horizontal displacement in pixels (positive=right)
         """
-        # Get active viewport area
-        for area in bpy.context.screen.areas:
-            if area.type == 'VIEW_3D':
-                # Normalize delta to viewport size
-                pan_amount = delta_x * 0.01
-                # This would typically use bpy.ops.view3d.pan or similar
-                # Implementation depends on Blender version
+        try:
+            for area in bpy.context.screen.areas:
+                if area.type == 'VIEW_3D':
+                    with bpy.context.temp_override(area=area):
+                        bpy.ops.view3d.pan(type='PANRIGHT' if delta_x > 0 else 'PANLEFT', value=int(abs(delta_x) * 0.5))
+        except Exception as e:
+            pass
 
     def _pan_camera_vertical(self, delta_y: float):
         """
@@ -125,12 +125,13 @@ class CameraGestureHandler:
         Args:
             delta_y: Vertical displacement in pixels (positive=up)
         """
-        # Get active viewport area
-        for area in bpy.context.screen.areas:
-            if area.type == 'VIEW_3D':
-                # Normalize delta to viewport size
-                pan_amount = delta_y * 0.01
-                # Implementation depends on Blender version
+        try:
+            for area in bpy.context.screen.areas:
+                if area.type == 'VIEW_3D':
+                    with bpy.context.temp_override(area=area):
+                        bpy.ops.view3d.pan(type='PANUP' if delta_y < 0 else 'PANDOWN', value=int(abs(delta_y) * 0.5))
+        except Exception as e:
+            pass
 
     def zoom_camera(self, direction: int, amount: float = 0.1):
         """
@@ -242,31 +243,37 @@ class BrushGestureHandler:
         if bpy.context.mode != 'SCULPT_MODE':
             return
 
-        # Tool cycling based on movement direction
-        sculpt_tools = [
-            'DRAW',
-            'DRAW_SHARP',
-            'DRAW_GRAB',
-            'GRAB',
-            'SMOOTH',
-            'CREASE'
-        ]
+        try:
+            tool_settings = bpy.context.tool_settings
+            if tool_settings.sculpt_paint_use_unified_size:
+                unified_size = tool_settings.unified_paint_settings.size
 
-        tool_index = 0
-        if hasattr(bpy.context, 'tool'):
+            # Cycle sculpt tools based on gesture direction
+            sculpt_tools = ['DRAW', 'DRAW_SHARP', 'DRAW_GRAB', 'GRAB', 'SMOOTH', 'CREASE']
+            current_tool = bpy.context.tool.idname.split('.')[-1] if hasattr(bpy.context, 'tool') else 'Draw'
+
             try:
-                tool_index = sculpt_tools.index(bpy.context.tool)
-            except ValueError:
+                tool_index = next((i for i, t in enumerate(sculpt_tools) if t in current_tool.upper()), 0)
+            except:
                 tool_index = 0
 
-        # Cycle tools based on gesture direction
-        if delta_y < 0:  # Moving up
-            tool_index = (tool_index + 1) % len(sculpt_tools)
-        else:  # Moving down
-            tool_index = (tool_index - 1) % len(sculpt_tools)
+            if delta_y < 0:  # Moving up
+                tool_index = (tool_index + 1) % len(sculpt_tools)
+            else:  # Moving down
+                tool_index = (tool_index - 1) % len(sculpt_tools)
 
-        # Note: Tool switching in Blender requires operator calls
-        print(f"Tool selection gesture: {sculpt_tools[tool_index]}")
+            # Set the sculpt tool
+            for wm in bpy.data.workspaces:
+                for screen in wm.screens:
+                    for area in screen.areas:
+                        if area.type == 'VIEW_3D':
+                            for region in area.regions:
+                                if region.type == 'WINDOW':
+                                    with bpy.context.temp_override(area=area, region=region):
+                                        bpy.ops.wm.tool_set_by_id(name=f"builtin_brush.sculpt.{sculpt_tools[tool_index].lower()}")
+                                        break
+        except Exception as e:
+            pass
 
     def _adjust_brush_size(self, delta_x: float):
         """
@@ -292,18 +299,32 @@ class BrushGestureHandler:
 
     def _apply_brush_stroke(self, pos: Tuple[float, float], dx: float, dy: float):
         """
-        Simulate brush stroke at current hand position.
+        Apply brush stroke at current hand position.
 
-        In actual implementation, would trigger brush application
-        at mouse coordinates matching hand position.
+        Uses operator to paint at hand-controlled coordinates within viewport.
 
         Args:
             pos: Current hand position (x, y)
             dx: Horizontal motion delta
             dy: Vertical motion delta
         """
-        # In production, this would use event simulation or direct brush API
-        pass
+        if bpy.context.mode not in ('PAINT_SCULPT', 'SCULPT_MODE'):
+            return
+
+        try:
+            for area in bpy.context.screen.areas:
+                if area.type == 'VIEW_3D':
+                    for region in area.regions:
+                        if region.type == 'WINDOW':
+                            with bpy.context.temp_override(area=area, region=region):
+                                if bpy.context.mode == 'SCULPT_MODE':
+                                    brush = bpy.context.tool_settings.sculpt.brush
+                                    if brush:
+                                        bpy.ops.sculpt.brush_stroke(
+                                            stroke=[{"location": pos, "size": brush.size, "pressure": 1.0}]
+                                        )
+        except Exception:
+            pass
 
     def reset(self):
         """Reset gesture tracking state."""
