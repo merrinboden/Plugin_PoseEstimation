@@ -770,31 +770,39 @@ def _process_queued_actions():
     try:
         import bpy
         actions = get_pending_actions()
+        if actions:
+            print(f"[Timer] Processing {len(actions)} queued actions")
+
         for action in actions:
             try:
                 atype = action.get("type")
                 data = action.get("data", {})
+                print(f"[Timer] Applying action: {atype}")
 
                 if atype == 'PAN_LEFT':
                     for area in bpy.context.screen.areas:
                         if area.type == 'VIEW_3D':
                             with bpy.context.temp_override(area=area):
                                 bpy.ops.view3d.pan(type='PANLEFT', value=data.get("amount", 10))
+                                print(f"[Timer] PAN_LEFT executed")
                 elif atype == 'PAN_RIGHT':
                     for area in bpy.context.screen.areas:
                         if area.type == 'VIEW_3D':
                             with bpy.context.temp_override(area=area):
                                 bpy.ops.view3d.pan(type='PANRIGHT', value=data.get("amount", 10))
+                                print(f"[Timer] PAN_RIGHT executed")
                 elif atype == 'PAN_UP':
                     for area in bpy.context.screen.areas:
                         if area.type == 'VIEW_3D':
                             with bpy.context.temp_override(area=area):
                                 bpy.ops.view3d.pan(type='PANUP', value=data.get("amount", 10))
+                                print(f"[Timer] PAN_UP executed")
                 elif atype == 'PAN_DOWN':
                     for area in bpy.context.screen.areas:
                         if area.type == 'VIEW_3D':
                             with bpy.context.temp_override(area=area):
                                 bpy.ops.view3d.pan(type='PANDOWN', value=data.get("amount", 10))
+                                print(f"[Timer] PAN_DOWN executed")
                 elif atype == 'ADJUST_BRUSH':
                     if bpy.context.mode == 'SCULPT_MODE':
                         brush = bpy.context.tool_settings.sculpt.brush
@@ -814,8 +822,8 @@ def _process_queued_actions():
                                             except:
                                                 pass
             except Exception as e:
-                pass
-    except Exception:
-        pass
+                print(f"[Timer] Error applying action: {e}")
+    except Exception as e:
+        print(f"[Timer] Error: {e}")
 
     return 0.016  # Call again in ~16ms for ~60fps
