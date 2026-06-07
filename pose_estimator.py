@@ -125,7 +125,7 @@ class PoseEstimator:
             model_dir = pathlib.Path(__file__).parent / "models"
             model_dir.mkdir(exist_ok=True)
 
-            pose_model = model_dir / "pose_landmarker_lite.task"
+            pose_model = model_dir / "pose_landmarker_full.task"
             hand_model = model_dir / "hand_landmarker.task"
 
             if pose_model.exists() and hand_model.exists():
@@ -419,30 +419,50 @@ class PoseEstimator:
             cv2.putText(disp, f"L: {state.left_hand_confidence:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
             cv2.putText(disp, f"R: {state.right_hand_confidence:.2f}", (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
-            # Draw arms (shoulder to wrist from pose landmarks)
             if state.body_keypoints is not None and state.body_keypoints.shape[0] > 16:
-                left_shoulder = state.body_keypoints[11][:2]
-                right_shoulder = state.body_keypoints[12][:2]
+                kp = state.body_keypoints
 
-                if state.left_hand_confidence > 0:
-                    lx = int(self._image_width - state.left_hand_pos[0])
-                    ly = int(state.left_hand_pos[1])
-                    cv2.line(disp, (int(self._image_width - left_shoulder[0]), int(left_shoulder[1])), (lx, ly), (0, 255, 0), 2)
-                    cv2.circle(disp, (lx, ly), 8, (0, 255, 0), -1)
+                def flip_x(x):
+                    return int(self._image_width - x)
 
-                if state.right_hand_confidence > 0:
-                    rx = int(self._image_width - state.right_hand_pos[0])
-                    ry = int(state.right_hand_pos[1])
-                    cv2.line(disp, (int(self._image_width - right_shoulder[0]), int(right_shoulder[1])), (rx, ry), (0, 0, 255), 2)
-                    cv2.circle(disp, (rx, ry), 8, (0, 0, 255), -1)
+                def draw_limb(p1_idx, p2_idx, color):
+                    if p1_idx < len(kp) and p2_idx < len(kp):
+                        p1, p2 = kp[p1_idx][:2], kp[p2_idx][:2]
+                        cv2.line(disp, (flip_x(p1[0]), int(p1[1])), (flip_x(p2[0]), int(p2[1])), color, 2)
 
-            # Draw finger landmarks
+                def draw_joint(idx, color):
+                    if idx < len(kp):
+                        p = kp[idx][:2]
+                        cv2.circle(disp, (flip_x(p[0]), int(p[1])), 5, color, -1)
+
+                draw_limb(11, 13, (100, 150, 100))
+                draw_limb(13, 15, (100, 150, 100))
+                draw_limb(12, 14, (100, 150, 150))
+                draw_limb(14, 16, (100, 150, 150))
+
+                draw_joint(11, (50, 200, 50))
+                draw_joint(13, (100, 200, 100))
+                draw_joint(15, (150, 200, 150))
+                draw_joint(12, (50, 50, 200))
+                draw_joint(14, (100, 100, 200))
+                draw_joint(16, (150, 150, 200))
+
+            if state.left_hand_confidence > 0:
+                lx = int(self._image_width - state.left_hand_pos[0])
+                ly = int(state.left_hand_pos[1])
+                cv2.circle(disp, (lx, ly), 6, (0, 255, 0), -1)
+
+            if state.right_hand_confidence > 0:
+                rx = int(self._image_width - state.right_hand_pos[0])
+                ry = int(state.right_hand_pos[1])
+                cv2.circle(disp, (rx, ry), 6, (0, 0, 255), -1)
+
             if state.left_hand_landmarks is not None:
-                for lm in state.left_hand_landmarks:
+                for i, lm in enumerate(state.left_hand_landmarks):
                     x = int(self._image_width - lm[0])
                     y = int(lm[1])
-                    cv2.circle(disp, (x, y), 3, (0, 200, 0), -1)
-                # Draw finger connections
+                    cv2.circle(disp, (x, y), 2, (0, 200, 0), -1)
+
                 finger_connections = [
                     (0, 1), (1, 2), (2, 3), (3, 4),
                     (0, 5), (5, 6), (6, 7), (7, 8),
@@ -454,18 +474,19 @@ class PoseEstimator:
                     if a < len(state.left_hand_landmarks) and b < len(state.left_hand_landmarks):
                         p1 = (int(self._image_width - state.left_hand_landmarks[a][0]), int(state.left_hand_landmarks[a][1]))
                         p2 = (int(self._image_width - state.left_hand_landmarks[b][0]), int(state.left_hand_landmarks[b][1]))
-                        cv2.line(disp, p1, p2, (0, 200, 0), 1)
+                        cv2.line(disp, p1, p2, (0, 150, 0), 1)
 
             if state.right_hand_landmarks is not None:
-                for lm in state.right_hand_landmarks:
+                for i, lm in enumerate(state.right_hand_landmarks):
                     x = int(self._image_width - lm[0])
                     y = int(lm[1])
-                    cv2.circle(disp, (x, y), 3, (0, 0, 200), -1)
+                    cv2.circle(disp, (x, y), 2, (0, 0, 200), -1)
+
                 for a, b in finger_connections:
                     if a < len(state.right_hand_landmarks) and b < len(state.right_hand_landmarks):
                         p1 = (int(self._image_width - state.right_hand_landmarks[a][0]), int(state.right_hand_landmarks[a][1]))
                         p2 = (int(self._image_width - state.right_hand_landmarks[b][0]), int(state.right_hand_landmarks[b][1]))
-                        cv2.line(disp, p1, p2, (0, 0, 200), 1)
+                        cv2.line(disp, p1, p2, (0, 0, 150), 1)
 
             cv2.imshow('Pose Debug', disp)
             cv2.waitKey(1)
@@ -587,6 +608,27 @@ class PoseEstimator:
                 pass
         print("Pose estimation stopped")
 
+    def _gesture_processing_thread(self):
+        """Background thread for gesture processing."""
+        from . import gesture_handler
+
+        while self.is_running:
+            try:
+                pose = self.get_latest_pose()
+                if pose and pose.is_valid:
+                    gesture_handler.process_gesture(
+                        pose.left_hand_pos,
+                        pose.left_hand_confidence,
+                        pose.right_hand_pos,
+                        pose.right_hand_confidence,
+                        self.confidence_threshold,
+                        pose.timestamp
+                    )
+            except Exception as e:
+                pass
+
+            threading.Event().wait(0.016)
+
     def get_latest_pose(self) -> PoseDetectionState:
         """
         Get most recent pose detection result without blocking.
@@ -614,7 +656,9 @@ class PoseEstimator:
 
 
 # Global instance
+# Global instance
 _estimator: Optional[PoseEstimator] = None
+_gesture_thread: Optional[threading.Thread] = None
 
 
 def initialize_estimator(webcam_index: int = 0, confidence_threshold: float = 0.5, debug_visual: bool = False):
@@ -631,6 +675,14 @@ def start_estimation():
     """Start pose estimation if initialized."""
     if _estimator:
         _estimator.start()
+
+
+def start_gesture_processing():
+    """Start background gesture processing thread."""
+    global _gesture_thread
+    if _estimator and not _gesture_thread:
+        _gesture_thread = threading.Thread(target=_estimator._gesture_processing_thread, daemon=True)
+        _gesture_thread.start()
 
 
 def stop_estimation():
