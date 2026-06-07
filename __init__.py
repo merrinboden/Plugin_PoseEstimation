@@ -94,7 +94,6 @@ class PoseEstimationProperties(bpy.types.PropertyGroup):
 def register():
     """Register all plugin classes and properties."""
     bpy.utils.register_class(PoseEstimationProperties)
-    bpy.utils.register_class(ui_panel.GestureActionProcessor)
     bpy.utils.register_class(ui_panel.PoseEstimationPanel)
     bpy.utils.register_class(ui_panel.PoseEstimationDebugPanel)
     bpy.utils.register_class(ui_panel.StartPoseEstimationOperator)
@@ -108,7 +107,6 @@ def register():
 def unregister():
     """Unregister all plugin classes and properties."""
     bpy.utils.unregister_class(PoseEstimationProperties)
-    bpy.utils.unregister_class(ui_panel.GestureActionProcessor)
     bpy.utils.unregister_class(ui_panel.PoseEstimationPanel)
     bpy.utils.unregister_class(ui_panel.PoseEstimationDebugPanel)
     bpy.utils.unregister_class(ui_panel.StartPoseEstimationOperator)
