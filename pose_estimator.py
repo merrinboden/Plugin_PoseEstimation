@@ -687,6 +687,7 @@ class PoseEstimator:
 _estimator: Optional[PoseEstimator] = None
 _gesture_thread: Optional[threading.Thread] = None
 _action_queue: queue.Queue = queue.Queue()  # Thread-safe queue for gesture actions
+_timer_handle = None  # Blender timer handle for processing actions
 
 
 def initialize_estimator(webcam_index: int = 0, confidence_threshold: float = 0.5, debug_visual: bool = False):
@@ -701,8 +702,15 @@ def initialize_estimator(webcam_index: int = 0, confidence_threshold: float = 0.
 
 def start_estimation():
     """Start pose estimation if initialized."""
+    global _timer_handle
     if _estimator:
         _estimator.start()
+        # Register timer to process actions
+        try:
+            import bpy
+            _timer_handle = bpy.app.timers.register(_process_queued_actions)
+        except Exception:
+            pass
 
 
 def start_gesture_processing():
@@ -715,8 +723,17 @@ def start_gesture_processing():
 
 def stop_estimation():
     """Stop pose estimation."""
+    global _timer_handle
     if _estimator:
         _estimator.stop()
+        # Unregister timer
+        try:
+            import bpy
+            if _timer_handle is not None:
+                bpy.app.timers.unregister(_timer_handle)
+                _timer_handle = None
+        except Exception:
+            pass
 
 
 def get_pose():
@@ -746,3 +763,59 @@ def get_pending_actions():
     except queue.Empty:
         pass
     return actions
+
+
+def _process_queued_actions():
+    """Process all queued gesture actions in main Blender thread. Called by timer."""
+    try:
+        import bpy
+        actions = get_pending_actions()
+        for action in actions:
+            try:
+                atype = action.get("type")
+                data = action.get("data", {})
+
+                if atype == 'PAN_LEFT':
+                    for area in bpy.context.screen.areas:
+                        if area.type == 'VIEW_3D':
+                            with bpy.context.temp_override(area=area):
+                                bpy.ops.view3d.pan(type='PANLEFT', value=data.get("amount", 10))
+                elif atype == 'PAN_RIGHT':
+                    for area in bpy.context.screen.areas:
+                        if area.type == 'VIEW_3D':
+                            with bpy.context.temp_override(area=area):
+                                bpy.ops.view3d.pan(type='PANRIGHT', value=data.get("amount", 10))
+                elif atype == 'PAN_UP':
+                    for area in bpy.context.screen.areas:
+                        if area.type == 'VIEW_3D':
+                            with bpy.context.temp_override(area=area):
+                                bpy.ops.view3d.pan(type='PANUP', value=data.get("amount", 10))
+                elif atype == 'PAN_DOWN':
+                    for area in bpy.context.screen.areas:
+                        if area.type == 'VIEW_3D':
+                            with bpy.context.temp_override(area=area):
+                                bpy.ops.view3d.pan(type='PANDOWN', value=data.get("amount", 10))
+                elif atype == 'ADJUST_BRUSH':
+                    if bpy.context.mode == 'SCULPT_MODE':
+                        brush = bpy.context.tool_settings.sculpt.brush
+                        if brush:
+                            delta = data.get("size_delta", 0)
+                            new_size = max(1, min(500, brush.size + delta))
+                            brush.size = new_size
+                elif atype == 'SELECT_TOOL':
+                    if bpy.context.mode == 'SCULPT_MODE':
+                        for area in bpy.context.screen.areas:
+                            if area.type == 'VIEW_3D':
+                                for region in area.regions:
+                                    if region.type == 'WINDOW':
+                                        with bpy.context.temp_override(area=area, region=region):
+                                            try:
+                                                bpy.ops.wm.tool_set_by_id(name="builtin_brush.sculpt.draw")
+                                            except:
+                                                pass
+            except Exception as e:
+                pass
+    except Exception:
+        pass
+
+    return 0.016  # Call again in ~16ms for ~60fps
