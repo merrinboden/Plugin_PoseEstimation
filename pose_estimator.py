@@ -13,6 +13,13 @@ Key Responsibilities:
 - Confidence-based filtering of unreliable detections
 """
 
+import sys
+import os
+
+user_site = os.path.expanduser("~") + r"\AppData\Roaming\Python\Python313\site-packages"
+if user_site not in sys.path:
+    sys.path.insert(0, user_site)
+
 import cv2
 import numpy as np
 import threading
@@ -20,8 +27,12 @@ import queue
 from typing import Dict, Tuple, Optional, List
 
 try:
-    import mediapipe as mp
-except ImportError:
+    from mediapipe.tasks.python.vision import PoseLandmarker, HandLandmarker
+    from mediapipe.tasks.python.vision.core.vision_task_running_mode import VisionTaskRunningMode
+    from mediapipe import tasks
+    mp = type('mp', (), {'solutions': type('solutions', (), {})})()
+except ImportError as e:
+    print(f"MediaPipe import error: {e}")
     mp = None
 
 
@@ -106,23 +117,49 @@ class PoseEstimator:
         self._image_height = 0
         self.debug = debug_window
 
-        # Initialize MediaPipe Pose
-        self.pose = mp.solutions.pose.Pose(
-            static_image_mode=False,
-            model_complexity=1,
-            enable_segmentation=False,
-            smooth_landmarks=True,
-            min_detection_confidence=max(0.1, self.confidence_threshold),
-            min_tracking_confidence=max(0.1, self.confidence_threshold),
-        )
+        try:
+            import pathlib
+            import urllib.request
 
-        # Initialize MediaPipe Hands for detailed finger tracking
-        self.hands = mp.solutions.hands.Hands(
-            static_image_mode=False,
-            max_num_hands=2,
-            min_detection_confidence=max(0.1, self.confidence_threshold),
-            min_tracking_confidence=max(0.1, self.confidence_threshold),
-        )
+            model_dir = pathlib.Path.home() / ".mediapipe_models"
+            model_dir.mkdir(exist_ok=True)
+
+            pose_model_path = model_dir / "pose_landmarker.task"
+            hand_model_path = model_dir / "hand_landmarker.task"
+
+            pose_url = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite.task"
+            hand_url = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker.task"
+
+            if not pose_model_path.exists():
+                print("[Init] Downloading pose model...")
+                urllib.request.urlretrieve(pose_url, pose_model_path)
+                print("[Init] Pose model downloaded")
+
+            if not hand_model_path.exists():
+                print("[Init] Downloading hand model...")
+                urllib.request.urlretrieve(hand_url, hand_model_path)
+                print("[Init] Hand model downloaded")
+
+            base_options_pose = tasks.BaseOptions(model_asset_path=str(pose_model_path))
+            options = tasks.vision.PoseLandmarkerOptions(
+                base_options=base_options_pose,
+                running_mode=VisionTaskRunningMode.IMAGE
+            )
+            self.pose = PoseLandmarker.create_from_options(options)
+
+            base_options_hand = tasks.BaseOptions(model_asset_path=str(hand_model_path))
+            hand_options = tasks.vision.HandLandmarkerOptions(
+                base_options=base_options_hand,
+                running_mode=VisionTaskRunningMode.IMAGE
+            )
+            self.hands = HandLandmarker.create_from_options(hand_options)
+            print("[Init] MediaPipe models loaded successfully")
+        except Exception as e:
+            print(f"Error initializing MediaPipe models: {e}")
+            import traceback
+            traceback.print_exc()
+            self.pose = None
+            self.hands = None
 
     def _setup_mediapipe_params(self) -> Dict:
         """
@@ -306,84 +343,91 @@ class PoseEstimator:
         Returns:
             Updated PoseDetectionState with detected positions
         """
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = self.pose.process(frame_rgb)
+        from mediapipe.tasks.python.vision.core.image import Image, ImageFormat
 
         self._image_height, self._image_width = frame.shape[:2]
+
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        mp_image = Image(image_format=ImageFormat.SRGB, data=frame_rgb)
 
         state = PoseDetectionState()
         state.timestamp = frame_number
 
-        if results.pose_landmarks and results.pose_landmarks.landmark:
-            landmarks = results.pose_landmarks.landmark
-            pose_keypoints = np.array([
-                [float(np.clip(landmark.x, 0.0, 1.0) * self._image_width),
-                 float(np.clip(landmark.y, 0.0, 1.0) * self._image_height),
-                 float(getattr(landmark, "visibility", 0.0) or getattr(landmark, "presence", 0.0) or 0.0)]
-                for landmark in landmarks
-            ], dtype=np.float32)
-            state.body_keypoints = pose_keypoints
+        try:
+            pose_results = self.pose.detect(mp_image)
 
-            left_pos, left_conf, right_pos, right_conf = self._extract_hand_positions(
-                landmarks,
-                self._image_width,
-                self._image_height
-            )
+            if pose_results and pose_results.landmarks:
+                landmarks_list = pose_results.landmarks[0]
 
-            # Also run MediaPipe Hands for detailed finger tracking
-            try:
-                hands_results = self.hands.process(frame_rgb)
-            except Exception:
-                hands_results = None
+                pose_keypoints = np.array([
+                    [float(lm.x * self._image_width),
+                     float(lm.y * self._image_height),
+                     float(lm.visibility if hasattr(lm, 'visibility') else 0.0)]
+                    for lm in landmarks_list
+                ], dtype=np.float32)
+                state.body_keypoints = pose_keypoints
 
-            l_hands, l_conf_h, r_hands, r_conf_h, misc = self._extract_hands_from_results(hands_results, self._image_width, self._image_height)
+                left_wrist = landmarks_list[15]
+                right_wrist = landmarks_list[16]
 
-            # Prefer hands-based wrist if available (more accurate for fingers)
-            if l_hands is not None and l_hands.shape[0] >= 1:
-                lw = (float(l_hands[0, 0]), float(l_hands[0, 1]))
-                left_pos = lw
-                left_conf = max(left_conf, l_conf_h)
-            if r_hands is not None and r_hands.shape[0] >= 1:
-                rw = (float(r_hands[0, 0]), float(r_hands[0, 1]))
-                right_pos = rw
-                right_conf = max(right_conf, r_conf_h)
+                left_pos = (float(left_wrist.x * self._image_width),
+                           float(left_wrist.y * self._image_height))
+                left_conf = float(left_wrist.visibility if hasattr(left_wrist, 'visibility') else 0.0)
 
-            # Populate extended hand info in state
-            state.left_hand_landmarks = l_hands
-            state.right_hand_landmarks = r_hands
+                right_pos = (float(right_wrist.x * self._image_width),
+                            float(right_wrist.y * self._image_height))
+                right_conf = float(right_wrist.visibility if hasattr(right_wrist, 'visibility') else 0.0)
 
-            # Fingertip indices in MediaPipe Hands: [4, 8, 12, 16, 20]
-            fingertips_idx = [4, 8, 12, 16, 20]
-            if l_hands is not None:
-                state.left_fingertips = {i: (float(l_hands[i, 0]), float(l_hands[i, 1])) for i in fingertips_idx}
-                state.left_palm_orientation = self._compute_palm_orientation(l_hands)
-            if r_hands is not None:
-                state.right_fingertips = {i: (float(r_hands[i, 0]), float(r_hands[i, 1])) for i in fingertips_idx}
-                state.right_palm_orientation = self._compute_palm_orientation(r_hands)
+                try:
+                    hands_results = self.hands.detect(mp_image)
+                except Exception:
+                    hands_results = None
 
-            # Apply smoothing to reduce jitter
-            left_pos = self._apply_smoothing(left_pos, self._prev_left_hand, self.smoothing_factor)
-            right_pos = self._apply_smoothing(right_pos, self._prev_right_hand, self.smoothing_factor)
+                l_hands, l_conf_h, r_hands, r_conf_h, misc = self._extract_hands_from_results(
+                    hands_results, self._image_width, self._image_height
+                )
 
-            self._prev_left_hand = left_pos
-            self._prev_right_hand = right_pos
+                if l_hands is not None and l_hands.shape[0] >= 1:
+                    lw = (float(l_hands[0, 0]), float(l_hands[0, 1]))
+                    left_pos = lw
+                    left_conf = max(left_conf, l_conf_h)
+                if r_hands is not None and r_hands.shape[0] >= 1:
+                    rw = (float(r_hands[0, 0]), float(r_hands[0, 1]))
+                    right_pos = rw
+                    right_conf = max(right_conf, r_conf_h)
 
-            state.left_hand_pos = left_pos
-            state.left_hand_confidence = left_conf
-            state.right_hand_pos = right_pos
-            state.right_hand_confidence = right_conf
+                state.left_hand_landmarks = l_hands
+                state.right_hand_landmarks = r_hands
 
-            # Mark as valid only if both hands detected above threshold
-            state.is_valid = (
-                left_conf >= self.confidence_threshold and
-                right_conf >= self.confidence_threshold
-            )
+                fingertips_idx = [4, 8, 12, 16, 20]
+                if l_hands is not None:
+                    state.left_fingertips = {i: (float(l_hands[i, 0]), float(l_hands[i, 1])) for i in fingertips_idx}
+                    state.left_palm_orientation = self._compute_palm_orientation(l_hands)
+                if r_hands is not None:
+                    state.right_fingertips = {i: (float(r_hands[i, 0]), float(r_hands[i, 1])) for i in fingertips_idx}
+                    state.right_palm_orientation = self._compute_palm_orientation(r_hands)
 
-        # If debug window enabled, draw simple annotations and show frame
+                left_pos = self._apply_smoothing(left_pos, self._prev_left_hand, self.smoothing_factor)
+                right_pos = self._apply_smoothing(right_pos, self._prev_right_hand, self.smoothing_factor)
+
+                self._prev_left_hand = left_pos
+                self._prev_right_hand = right_pos
+
+                state.left_hand_pos = left_pos
+                state.left_hand_confidence = left_conf
+                state.right_hand_pos = right_pos
+                state.right_hand_confidence = right_conf
+
+                state.is_valid = (
+                    left_conf >= self.confidence_threshold and
+                    right_conf >= self.confidence_threshold
+                )
+        except Exception as e:
+            print(f"Error processing frame: {e}")
+
         if self.debug:
             disp = frame.copy()
             try:
-                # draw wrists
                 if state.left_hand_confidence > 0:
                     lx, ly = int(state.left_hand_pos[0]), int(state.left_hand_pos[1])
                     cv2.circle(disp, (lx, ly), 8, (0, 255, 0), -1)
@@ -393,18 +437,23 @@ class PoseEstimator:
                     cv2.circle(disp, (rx, ry), 8, (0, 0, 255), -1)
                     cv2.putText(disp, f"R:{state.right_hand_confidence:.2f}", (rx+10, ry), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,255), 1)
 
-                # draw hand landmarks and connections if available
                 try:
-                    hand_connections = mp.solutions.hands.HAND_CONNECTIONS
+                    from mediapipe.tasks.python.vision import HandLandmarker
+                    hand_connections = [
+                        (0, 1), (1, 2), (2, 3), (3, 4),
+                        (0, 5), (5, 6), (6, 7), (7, 8),
+                        (5, 9), (9, 10), (10, 11), (11, 12),
+                        (9, 13), (13, 14), (14, 15), (15, 16),
+                        (13, 17), (17, 18), (18, 19), (19, 20),
+                        (0, 17), (0, 13), (0, 9), (0, 5),
+                    ]
                 except Exception:
                     hand_connections = []
 
-                # helper to draw landmarks
                 def _draw_hand_landmarks(arr, color=(0,255,0)):
                     for i in range(arr.shape[0]):
                         x, y = int(arr[i,0]), int(arr[i,1])
                         cv2.circle(disp, (x, y), 3, color, -1)
-                    # draw connections
                     for a, b in hand_connections:
                         try:
                             xa, ya = int(arr[a,0]), int(arr[a,1])
@@ -415,15 +464,12 @@ class PoseEstimator:
 
                 if state.left_hand_landmarks is not None:
                     _draw_hand_landmarks(state.left_hand_landmarks, color=(0,200,0))
-                    # draw fingertips
                     for i, (fx, fy) in (state.left_fingertips or {}).items():
                         cv2.circle(disp, (int(fx), int(fy)), 5, (0,255,0), 1)
-                    # draw palm orientation
                     if state.left_palm_orientation is not None:
                         cx = int(state.left_hand_landmarks[:,0].mean())
                         cy = int(state.left_hand_landmarks[:,1].mean())
                         nx, ny, nz = state.left_palm_orientation
-                        # draw approximate 2D orientation vector
                         ox = int(cx + nx * 40)
                         oy = int(cy + ny * 40)
                         cv2.arrowedLine(disp, (cx, cy), (ox, oy), (0,255,0), 2)
@@ -443,7 +489,6 @@ class PoseEstimator:
                 cv2.imshow('Pose Debug', disp)
                 cv2.waitKey(1)
             except Exception:
-                # Avoid breaking the pipeline if display is not available
                 pass
 
         self.current_state = state
@@ -511,8 +556,11 @@ class PoseEstimator:
             self.thread.join(timeout=2.0)
 
         if self.pose:
-            self.pose.close()
-        if hasattr(self, 'hands') and self.hands:
+            try:
+                self.pose.close()
+            except Exception:
+                pass
+        if self.hands:
             try:
                 self.hands.close()
             except Exception:

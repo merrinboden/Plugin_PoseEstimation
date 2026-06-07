@@ -12,6 +12,11 @@ Version: 1.0.0
 Blender Version: 4.0+
 """
 
+import sys
+import site
+
+site.addsitedir(site.getusersitepackages())
+
 import bpy
 from bpy.props import BoolProperty, FloatProperty, IntProperty, EnumProperty
 from . import pose_estimator

@@ -9,12 +9,14 @@ SYSTEM REQUIREMENTS
 ===================
 
 Hardware:
+
 - Webcam or camera device connected to your computer
 - GPU recommended (NVIDIA with CUDA support for best performance)
 - Minimum: 4GB RAM, dual-core CPU
 - Recommended: 8GB+ RAM, quad-core CPU with GPU
 
 Software:
+
 - Blender 4.0 or newer
 - Python 3.8 or newer (included with Blender 4.0+)
 - Windows 10/11, macOS 10.15+, or Linux (Ubuntu 18.04+)
@@ -26,18 +28,21 @@ Step 1: Install System Dependencies
 ------------------------------------
 
 Windows:
+
   1. Download and install Python 3.8+ from python.org
   2. During installation, CHECK "Add Python to PATH"
   3. Open Command Prompt and verify:
      python --version
 
 macOS:
+
   1. Install Homebrew if not already installed:
-     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+     /bin/bash -c "$(curl -fsSL <https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh>)"
   2. Install Python:
      brew install python@3.11
 
 Linux (Ubuntu):
+
   1. Update package manager:
      sudo apt update
   2. Install Python:
@@ -48,11 +53,13 @@ Step 2: Install Python Dependencies
 
 Open terminal/command prompt and run:
 
-# For Windows (Command Prompt as Administrator):
+# For Windows (Command Prompt as Administrator)
+
 pip install --upgrade pip
 pip install opencv-python numpy
 
-# For macOS/Linux:
+# For macOS/Linux
+
 pip3 install --upgrade pip
 pip3 install opencv-python numpy
 
@@ -70,6 +77,7 @@ Step 4: Install Blender Plugin
 -------------------------------
 
 Option 1: From Blender UI
+
   1. Open Blender
   2. Go to Edit → Preferences → Add-ons
   3. Click "Install..." button
@@ -78,6 +86,7 @@ Option 1: From Blender UI
   6. Click "Save Preferences"
 
 Option 2: Manual Installation
+
   1. Locate your Blender addons folder:
 
      Windows:
@@ -137,8 +146,9 @@ Confidence Threshold: 0.5 (balance between sensitivity and noise)
 Smoothing: 0.7 (smooth hand tracking)
 
 If webcam not detected:
-  - Try changing Webcam Index to 1, 2, etc.
-  - Check if another application is using the webcam
+
+- Try changing Webcam Index to 1, 2, etc.
+- Check if another application is using the webcam
 
 Step 5: Start Pose Estimation
 ------------------------------
@@ -149,9 +159,10 @@ Step 5: Start Pose Estimation
 4. Position your hands in front of the webcam
 
 Expected Results:
-  - Both hands should be visible to the camera
-  - Confidence scores in debug panel should be > 0.5
-  - Smooth hand movements should update position
+
+- Both hands should be visible to the camera
+- Confidence scores in debug panel should be > 0.5
+- Smooth hand movements should update position
 
 FIRST TIME USAGE
 ================
@@ -191,6 +202,7 @@ Solution:
 
 Issue: Webcam not detected (Index error)
 Solution:
+
   1. Try different webcam_index values (0, 1, 2)
   2. Verify webcam with system settings
   3. Close other applications using webcam
@@ -199,14 +211,16 @@ Solution:
 
 Issue: No hand detection (Low confidence)
 Solution:
+
   1. Improve lighting - move to brighter area
   2. Lower confidence_threshold to 0.3-0.4
   3. Position hands more centrally in frame
   4. Ensure hands are not partially obscured
-   5. Check the webcam is active and visible in Blender console logs
+  5. Check the webcam is active and visible in Blender console logs
 
 Issue: Jerky/jumpy hand tracking
 Solution:
+
   1. Increase smoothing_factor to 0.8-0.9
   2. Keep hands moving at moderate speed
   3. Improve lighting conditions
@@ -215,6 +229,7 @@ Solution:
 
 Issue: Plugin doesn't appear in Preferences
 Solution:
+
   1. Verify installation location is correct
   2. Check __init__.py is in plugin root directory
   3. Ensure bl_info dict is present in __init__.py
@@ -225,11 +240,13 @@ PERFORMANCE OPTIMIZATION
 =========================
 
 First Run (Slow):
+
 - MediaPipe ships with lightweight runtime assets
 - Initialization takes around 1-2 seconds
 - This is normal
 
 Subsequent Runs (Normal):
+
 - Models cached locally
 - Initialization takes 2-3 seconds
 - Normal operation: 20-60 FPS depending on hardware
@@ -294,6 +311,7 @@ If you need to remove the plugin:
 5. Click "Remove" button
 
 Or manually:
+
 1. Delete plugin folder from addons directory (see Step 4 above)
 2. Restart Blender
 
