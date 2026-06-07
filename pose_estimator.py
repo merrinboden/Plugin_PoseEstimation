@@ -260,6 +260,10 @@ class PoseEstimator:
             return None, 0.0, None, 0.0, misc
 
         try:
+            num_hands = len(hands_results.hand_landmarks)
+            if num_hands > 0:
+                print(f"[Hand Detection] Found {num_hands} hands")
+
             for idx, hand_lm in enumerate(hands_results.hand_landmarks):
                 label = None
                 score = 0.0
@@ -268,6 +272,7 @@ class PoseEstimator:
                     category = hands_results.handedness[idx][0]
                     label = category.category_name
                     score = float(category.score)
+                    print(f"  Hand {idx}: {label} (confidence: {score:.2f})")
 
                 try:
                     # Try direct iteration first (might be list of landmarks)
@@ -281,6 +286,7 @@ class PoseEstimator:
                         for lm in landmarks_list
                     ], dtype=np.float32)
 
+                    # Determine hand side: use label if available, otherwise use centroid x position
                     if label == 'Left':
                         left_landmarks = lm_arr
                         left_conf = score
@@ -289,14 +295,16 @@ class PoseEstimator:
                         right_conf = score
                     else:
                         # Fallback: determine hand side by centroid x position
-                        cx = float(np.mean(lm_arr[:, 0]))
-                        if cx < width / 2:
+                        # Check wrist position (landmark 0) to determine side
+                        wrist_x = float(landmarks_list[0].x)
+                        if wrist_x < 0.5:
                             left_landmarks = lm_arr
-                            left_conf = max(left_conf, score)
+                            left_conf = score
                         else:
                             right_landmarks = lm_arr
-                            right_conf = max(right_conf, score)
+                            right_conf = score
                 except (AttributeError, TypeError) as e:
+                    print(f"  Hand {idx}: Error processing - {e}")
                     continue
 
         except Exception as e:
