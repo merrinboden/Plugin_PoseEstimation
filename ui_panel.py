@@ -128,7 +128,7 @@ class StartPoseEstimationOperator(bpy.types.Operator):
             context: Blender context
 
         Returns:
-            {'FINISHED'} on success, {'CANCELLED'} on error
+            {'RUNNING_MODAL'} on success, {'CANCELLED'} on error
         """
         try:
             props = context.scene.pose_est_props
@@ -151,12 +151,37 @@ class StartPoseEstimationOperator(bpy.types.Operator):
             self.report({'INFO'}, "Pose estimation started")
             print("[Pose Estimation] Started successfully")
 
-            return {'FINISHED'}
+            wm = context.window_manager
+            self._timer = wm.event_timer_add(0.016, window=context.window)
+            wm.modal_handler_add(self)
+
+            return {'RUNNING_MODAL'}
 
         except Exception as e:
             self.report({'ERROR'}, f"Failed to start: {str(e)}")
             print(f"[Pose Estimation] Error: {e}")
             return {'CANCELLED'}
+
+    def modal(self, context, event):
+        """Handle modal timer events for gesture processing."""
+        if event.type == 'TIMER':
+            pose = pose_estimator.get_pose()
+            if pose and pose.is_valid:
+                gesture_handler.process_gesture(
+                    pose.left_hand_pos,
+                    pose.left_hand_confidence,
+                    pose.right_hand_pos,
+                    pose.right_hand_confidence,
+                    context.scene.pose_est_props.confidence_threshold,
+                    pose.timestamp
+                )
+
+        if not context.scene.pose_est_props.is_active:
+            wm = context.window_manager
+            wm.event_timer_remove(self._timer)
+            return {'FINISHED'}
+
+        return {'RUNNING_MODAL'}
 
 
 class StopPoseEstimationOperator(bpy.types.Operator):
