@@ -709,8 +709,9 @@ def start_estimation():
         try:
             import bpy
             _timer_handle = bpy.app.timers.register(_process_queued_actions)
-        except Exception:
-            pass
+            print("[Estimation] Timer registered for action processing")
+        except Exception as e:
+            print(f"[Estimation] Failed to register timer: {e}")
 
 
 def start_gesture_processing():
