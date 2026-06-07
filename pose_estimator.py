@@ -770,6 +770,7 @@ def _process_queued_actions():
     """Process all queued gesture actions in main Blender thread. Called by timer."""
     try:
         import bpy
+        import mathutils
         actions = get_pending_actions()
         if actions:
             print(f"[Timer] Processing {len(actions)} queued actions")
@@ -780,31 +781,34 @@ def _process_queued_actions():
                 data = action.get("data", {})
                 print(f"[Timer] Applying action: {atype}")
 
-                if atype == 'PAN_LEFT':
-                    for area in bpy.context.screen.areas:
-                        if area.type == 'VIEW_3D':
-                            with bpy.context.temp_override(area=area):
-                                bpy.ops.view3d.pan(type='PANLEFT', value=data.get("amount", 10))
-                                print(f"[Timer] PAN_LEFT executed")
-                elif atype == 'PAN_RIGHT':
-                    for area in bpy.context.screen.areas:
-                        if area.type == 'VIEW_3D':
-                            with bpy.context.temp_override(area=area):
-                                bpy.ops.view3d.pan(type='PANRIGHT', value=data.get("amount", 10))
-                                print(f"[Timer] PAN_RIGHT executed")
-                elif atype == 'PAN_UP':
-                    for area in bpy.context.screen.areas:
-                        if area.type == 'VIEW_3D':
-                            with bpy.context.temp_override(area=area):
-                                bpy.ops.view3d.pan(type='PANUP', value=data.get("amount", 10))
-                                print(f"[Timer] PAN_UP executed")
-                elif atype == 'PAN_DOWN':
-                    for area in bpy.context.screen.areas:
-                        if area.type == 'VIEW_3D':
-                            with bpy.context.temp_override(area=area):
-                                bpy.ops.view3d.pan(type='PANDOWN', value=data.get("amount", 10))
-                                print(f"[Timer] PAN_DOWN executed")
-                elif atype == 'ADJUST_BRUSH':
+                # Find 3D viewport and its region
+                for area in bpy.context.screen.areas:
+                    if area.type != 'VIEW_3D':
+                        continue
+                    for region in area.regions:
+                        if region.type != 'WINDOW':
+                            continue
+
+                        rv3d = region.data
+                        if not rv3d:
+                            continue
+
+                        amount = data.get("amount", 10) * 0.01  # Scale to viewport units
+
+                        if atype == 'PAN_LEFT':
+                            rv3d.view_location.x -= amount
+                            print(f"[Timer] PAN_LEFT executed")
+                        elif atype == 'PAN_RIGHT':
+                            rv3d.view_location.x += amount
+                            print(f"[Timer] PAN_RIGHT executed")
+                        elif atype == 'PAN_UP':
+                            rv3d.view_location.y += amount
+                            print(f"[Timer] PAN_UP executed")
+                        elif atype == 'PAN_DOWN':
+                            rv3d.view_location.y -= amount
+                            print(f"[Timer] PAN_DOWN executed")
+
+                if atype == 'ADJUST_BRUSH':
                     if bpy.context.mode == 'SCULPT_MODE':
                         brush = bpy.context.tool_settings.sculpt.brush
                         if brush:
