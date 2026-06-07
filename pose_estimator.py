@@ -140,7 +140,8 @@ class PoseEstimator:
                     base_options_hand = tasks.BaseOptions(model_asset_path=str(hand_model))
                     hand_options = tasks.vision.HandLandmarkerOptions(
                         base_options=base_options_hand,
-                        running_mode=VisionTaskRunningMode.IMAGE
+                        running_mode=VisionTaskRunningMode.IMAGE,
+                        num_hands=2
                     )
                     self.hands = HandLandmarker.create_from_options(hand_options)
                     print("[Init] MediaPipe models loaded from local files")
