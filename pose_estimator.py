@@ -639,6 +639,7 @@ class PoseEstimator:
         """Background thread for gesture processing."""
         from . import gesture_handler
 
+        print("[Gesture Thread] Started")
         while self.is_running:
             try:
                 pose = self.get_latest_pose()
@@ -652,7 +653,9 @@ class PoseEstimator:
                         pose.timestamp
                     )
             except Exception as e:
-                pass
+                print(f"[Gesture Thread] Error: {e}")
+                import traceback
+                traceback.print_exc()
 
             threading.Event().wait(0.016)
 

@@ -323,14 +323,14 @@ class GestureManager:
         self.last_update_frame = frame_number
 
         # Process left hand for camera control
-        self.camera_handler.process_left_hand(
+        left_processed = self.camera_handler.process_left_hand(
             left_hand_pos,
             left_confidence,
             confidence_threshold
         )
 
         # Process right hand for brush control
-        self.brush_handler.process_right_hand(
+        right_processed = self.brush_handler.process_right_hand(
             right_hand_pos,
             right_confidence,
             confidence_threshold
