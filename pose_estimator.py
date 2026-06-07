@@ -438,6 +438,12 @@ class PoseEstimator:
             cv2.putText(disp, f"L: {state.left_hand_confidence:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
             cv2.putText(disp, f"R: {state.right_hand_confidence:.2f}", (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
+            # Debug: show hand detection status
+            left_status = "✓" if state.left_hand_landmarks is not None else "✗"
+            right_status = "✓" if state.right_hand_landmarks is not None else "✗"
+            cv2.putText(disp, f"Left Hand {left_status}", (10, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+            cv2.putText(disp, f"Right Hand {right_status}", (10, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+
             if state.body_keypoints is not None and state.body_keypoints.shape[0] > 16:
                 kp = state.body_keypoints
 
