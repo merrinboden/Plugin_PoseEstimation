@@ -103,6 +103,15 @@ def register():
         type=PoseEstimationProperties
     )
 
+    # Load gesture configuration
+    try:
+        import pathlib
+        config_path = pathlib.Path(__file__).parent / "gestures_config.yaml"
+        gesture_handler.gesture_handler.GestureConfig(str(config_path))
+        print("[Init] Gesture config loaded")
+    except Exception as e:
+        print(f"[Init] Error loading gesture config: {e}")
+
 
 def unregister():
     """Unregister all plugin classes and properties."""

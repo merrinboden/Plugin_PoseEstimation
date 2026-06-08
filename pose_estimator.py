@@ -818,6 +818,13 @@ def _process_queued_actions():
                             delta = data.get("size_delta", 0)
                             new_size = max(1, min(500, brush.size + delta))
                             brush.size = new_size
+                elif atype == 'ADJUST_STRENGTH':
+                    if bpy.context.mode == 'SCULPT_MODE':
+                        brush = bpy.context.tool_settings.sculpt.brush
+                        if brush:
+                            delta = data.get("strength_delta", 0)
+                            new_strength = max(0.0, min(1.0, brush.strength + delta))
+                            brush.strength = new_strength
                 elif atype == 'SELECT_TOOL':
                     if bpy.context.mode == 'SCULPT_MODE':
                         for area in bpy.context.screen.areas:

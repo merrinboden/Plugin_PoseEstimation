@@ -133,6 +133,11 @@ class StartPoseEstimationOperator(bpy.types.Operator):
         try:
             props = context.scene.pose_est_props
 
+            # Load gesture configuration
+            import pathlib
+            config_path = pathlib.Path(__file__).parent / "gestures_config.yaml"
+            gesture_config = gesture_handler.GestureConfig(str(config_path))
+
             # Initialize pose estimator with current settings
             pose_estimator.initialize_estimator(
                 webcam_index=props.webcam_index,
@@ -140,8 +145,8 @@ class StartPoseEstimationOperator(bpy.types.Operator):
                 debug_visual=props.debug_visual
             )
 
-            # Initialize gesture recognition
-            gesture_handler.initialize_gesture_manager()
+            # Initialize gesture recognition with config
+            gesture_handler.initialize_gesture_manager(gesture_config)
 
             # Start estimation in background thread
             pose_estimator.start_estimation()
@@ -157,6 +162,8 @@ class StartPoseEstimationOperator(bpy.types.Operator):
         except Exception as e:
             self.report({'ERROR'}, f"Failed to start: {str(e)}")
             print(f"[Pose Estimation] Error: {e}")
+            import traceback
+            traceback.print_exc()
             return {'CANCELLED'}
 
 

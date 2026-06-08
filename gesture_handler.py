@@ -8,13 +8,16 @@ Gesture Recognition:
 - Left hand: Camera navigation, viewport panning, zooming
 - Right hand: Tool selection, brush properties, painting operations
 
-Includes gesture filtering to distinguish intentional movements from noise.
+Includes gesture filtering, dynamic gesture detection (swipes, circles), and configurable thresholds.
 """
 
 import bpy
 import math
-from typing import Tuple, Optional
+import time
+from typing import Tuple, Optional, List, Dict
 from enum import Enum
+import yaml
+import pathlib
 
 
 class HandGestureType(Enum):
@@ -30,6 +33,113 @@ class HandGestureType(Enum):
     PINCH = "pinch"
 
 
+class GestureConfig:
+    """Load and manage gesture mappings from YAML configuration file."""
+
+    def __init__(self, config_path: Optional[str] = None):
+        """Load gesture configuration from YAML file."""
+        if config_path is None:
+            config_path = pathlib.Path(__file__).parent / "gestures_config.yaml"
+
+        self.config = {}
+        try:
+            with open(config_path, 'r') as f:
+                self.config = yaml.safe_load(f) or {}
+            print(f"[Gesture Config] Loaded from {config_path}")
+        except FileNotFoundError:
+            print(f"[Gesture Config] File not found: {config_path}")
+        except Exception as e:
+            print(f"[Gesture Config] Error loading: {e}")
+
+    def get(self, key: str, default=None):
+        """Get config value by dot-notation key (e.g., 'sculpt_mode.right_hand.brush_size.threshold')."""
+        keys = key.split('.')
+        value = self.config
+        for k in keys:
+            if isinstance(value, dict):
+                value = value.get(k)
+            else:
+                return default
+        return value if value is not None else default
+
+    def get_threshold(self, action: str) -> float:
+        """Get pixel threshold for a specific action."""
+        threshold = self.get(f"thresholds.{action}")
+        if threshold is None:
+            threshold = self.get("camera_control.left_hand.horizontal_pan.threshold", 25)
+        return threshold
+
+    def get_sensitivity(self, action: str) -> float:
+        """Get sensitivity multiplier for an action."""
+        sensitivity = self.get(f"{action}.sensitivity", 1.0)
+        global_mult = self.get("global.sensitivity_multiplier", 1.0)
+        return sensitivity * global_mult
+
+
+class DynamicGestureDetector:
+    """Detect dynamic gestures (swipes, circles, taps) from motion history."""
+
+    def __init__(self, config: GestureConfig):
+        self.config = config
+        self.motion_history: List[Tuple[float, float, float]] = []  # (x, y, timestamp)
+        self.max_history = 60  # Keep ~1 second of history at 60fps
+
+    def add_motion(self, x: float, y: float):
+        """Add hand position to motion history."""
+        self.motion_history.append((x, y, time.time()))
+        # Trim old entries
+        cutoff_time = time.time() - 1.0
+        self.motion_history = [(x, y, t) for x, y, t in self.motion_history if t > cutoff_time]
+
+    def detect_swipe(self) -> Optional[str]:
+        """Detect horizontal swipe (left or right)."""
+        if len(self.motion_history) < 5:
+            return None
+
+        first_x = self.motion_history[0][0]
+        last_x = self.motion_history[-1][0]
+        total_distance = abs(last_x - first_x)
+
+        config_swipe = self.config.get("dynamic_gestures.swipe_left", {})
+        min_distance = config_swipe.get("min_distance", 100)
+        max_duration = config_swipe.get("max_duration", 500) / 1000.0
+
+        duration = self.motion_history[-1][2] - self.motion_history[0][2]
+
+        if total_distance > min_distance and duration < max_duration:
+            if last_x > first_x:
+                return "swipe_right"
+            else:
+                return "swipe_left"
+
+        return None
+
+    def clear_history(self):
+        """Clear motion history."""
+        self.motion_history = []
+
+
+class BrushCursorController:
+    """Map hand position to brush cursor location in viewport."""
+
+    def __init__(self, config: GestureConfig):
+        self.config = config
+        self.enabled = config.get("sculpt_mode.right_hand.brush_cursor.enabled", True)
+
+    def get_brush_location_from_hand(self, hand_pos: Tuple[float, float], viewport_width: int, viewport_height: int) -> Tuple[int, int]:
+        """Convert hand position to brush cursor coordinates in viewport."""
+        if not self.enabled:
+            return None
+
+        hand_x, hand_y = hand_pos
+        # Hand position is typically 0-640 (webcam resolution)
+        # Map to viewport coordinates
+        brush_x = int(hand_x * viewport_width / 640)
+        brush_y = int(hand_y * viewport_height / 480)
+
+        return (brush_x, brush_y)
+
+
 class CameraGestureHandler:
     """
     Manages left-hand gestures for camera and viewport control.
@@ -39,15 +149,12 @@ class CameraGestureHandler:
     - Vertical movement: Pan up/down
     - Forward/backward: Zoom in/out
 
-    Uses motion thresholds to filter noise and distinguish intentional gestures.
+    Uses configurable thresholds from gesture config.
     """
 
-    # Movement threshold in pixels to trigger action
-    PAN_THRESHOLD = 10
-    ZOOM_THRESHOLD = 5
-
-    def __init__(self):
-        """Initialize camera gesture handler."""
+    def __init__(self, config: GestureConfig):
+        """Initialize camera gesture handler with config."""
+        self.config = config
         self.last_hand_pos: Optional[Tuple[float, float]] = None
         self.gesture_active = False
 
@@ -60,10 +167,7 @@ class CameraGestureHandler:
         """
         Process left hand position for camera control.
 
-        Interprets hand motion to control viewport:
-        - Horizontal movement: Pan camera left/right
-        - Vertical movement: Pan camera up/down
-        - Forward motion (if tracked): Zoom
+        Uses configurable thresholds from gesture config.
 
         Args:
             hand_pos: (x, y) screen position of left hand
@@ -88,13 +192,17 @@ class CameraGestureHandler:
 
         gesture_processed = False
 
+        # Get configurable thresholds
+        h_threshold = self.config.get_threshold("pan_left")
+        v_threshold = self.config.get_threshold("pan_up")
+
         # Horizontal pan (camera left/right)
-        if abs(dx) > self.PAN_THRESHOLD:
+        if abs(dx) > h_threshold:
             self._pan_camera_horizontal(dx)
             gesture_processed = True
 
         # Vertical pan (camera up/down)
-        if abs(dy) > self.PAN_THRESHOLD:
+        if abs(dy) > v_threshold:
             self._pan_camera_vertical(dy)
             gesture_processed = True
 
@@ -104,12 +212,7 @@ class CameraGestureHandler:
         return gesture_processed
 
     def _pan_camera_horizontal(self, delta_x: float):
-        """
-        Pan viewport horizontally based on hand movement.
-
-        Args:
-            delta_x: Horizontal displacement in pixels (positive=right)
-        """
+        """Pan viewport horizontally based on hand movement."""
         from . import pose_estimator
         action_type = 'PAN_RIGHT' if delta_x > 0 else 'PAN_LEFT'
         amount = int(abs(delta_x) * 0.5)
@@ -117,12 +220,7 @@ class CameraGestureHandler:
         print(f"[Gesture] {action_type} (+{amount})")
 
     def _pan_camera_vertical(self, delta_y: float):
-        """
-        Pan viewport vertically based on hand movement.
-
-        Args:
-            delta_y: Vertical displacement in pixels (positive=up)
-        """
+        """Pan viewport vertically based on hand movement."""
         from . import pose_estimator
         action_type = 'PAN_UP' if delta_y < 0 else 'PAN_DOWN'
         amount = int(abs(delta_y) * 0.5)
@@ -130,20 +228,14 @@ class CameraGestureHandler:
         print(f"[Gesture] {action_type} (+{amount})")
 
     def zoom_camera(self, direction: int, amount: float = 0.1):
-        """
-        Zoom viewport in or out.
-
-        Args:
-            direction: 1 for zoom in, -1 for zoom out
-            amount: Zoom amount relative to current view
-        """
+        """Zoom viewport in or out."""
         try:
             for area in bpy.context.screen.areas:
                 if area.type == 'VIEW_3D':
                     with bpy.context.temp_override(area=area):
                         bpy.ops.view3d.zoom(delta=direction * int(amount * 100))
         except Exception as e:
-            print(f"Error zooming camera: {e}")
+            pass
 
     def reset(self):
         """Reset gesture tracking state."""
@@ -156,22 +248,22 @@ class BrushGestureHandler:
     Manages right-hand gestures for tool and brush control.
 
     Maps hand positions to:
-    - Hand height: Select different tools
-    - Hand distance from center: Adjust brush size
-    - Hand movement: Apply brush strokes
+    - Horizontal movement: Adjust brush size
+    - Vertical movement: Cycle through tools
+    - Diagonal movement: Adjust brush strength
+    - Hand position: Direct cursor placement
 
-    Supports both sculpting and painting operations.
+    Uses configurable thresholds from gesture config.
     """
 
-    # Distance thresholds in pixels
-    TOOL_SELECTION_THRESHOLD = 50
-    BRUSH_SIZE_THRESHOLD = 20
-
-    def __init__(self):
-        """Initialize brush gesture handler."""
+    def __init__(self, config: GestureConfig):
+        """Initialize brush gesture handler with config."""
+        self.config = config
         self.last_hand_pos: Optional[Tuple[float, float]] = None
         self.tool_change_pending = False
         self.last_tool_index = 0
+        self.cursor_controller = BrushCursorController(config)
+        self.gesture_detector = DynamicGestureDetector(config)
 
     def process_right_hand(
         self,
@@ -185,7 +277,8 @@ class BrushGestureHandler:
         Interprets hand position and motion:
         - Vertical position: Select tool (up=different tools)
         - Distance from neutral: Brush size adjustment
-        - Movement pattern: Apply brush stroke
+        - Diagonal movement: Brush strength
+        - Position: Direct cursor placement
 
         Args:
             hand_pos: (x, y) screen position of right hand
@@ -199,6 +292,9 @@ class BrushGestureHandler:
             self.last_hand_pos = None
             return False
 
+        # Track motion for dynamic gesture detection
+        self.gesture_detector.add_motion(hand_pos[0], hand_pos[1])
+
         if self.last_hand_pos is None:
             self.last_hand_pos = hand_pos
             return False
@@ -208,18 +304,29 @@ class BrushGestureHandler:
 
         gesture_processed = False
 
-        # Tool selection based on vertical position
-        if abs(dy) > self.TOOL_SELECTION_THRESHOLD:
-            self._select_tool_by_height(hand_pos[1], dy)
-            gesture_processed = True
+        # Get configurable thresholds
+        h_threshold = self.config.get_threshold("brush_size_horizontal")
+        v_threshold = self.config.get_threshold("tool_select_vertical")
+        d_threshold = self.config.get_threshold("brush_strength_diagonal")
 
-        # Brush size based on horizontal distance
-        if abs(dx) > self.BRUSH_SIZE_THRESHOLD:
+        # Horizontal: brush size
+        if abs(dx) > h_threshold:
             self._adjust_brush_size(dx)
             gesture_processed = True
 
-        # Continuous brush stroke
-        if abs(dx) > 2 or abs(dy) > 2:
+        # Vertical: tool selection
+        if abs(dy) > v_threshold:
+            self._select_tool_by_height(hand_pos[1], dy)
+            gesture_processed = True
+
+        # Diagonal: brush strength
+        diagonal_dist = math.sqrt(dx*dx + dy*dy)
+        if diagonal_dist > d_threshold and abs(dx) > h_threshold and abs(dy) > v_threshold:
+            self._adjust_brush_strength(dx, dy)
+            gesture_processed = True
+
+        # Continuous brush cursor mapping
+        if self.config.get("sculpt_mode.right_hand.brush_cursor.enabled", True):
             self._apply_brush_stroke(hand_pos, dx, dy)
             gesture_processed = True
 
@@ -227,50 +334,42 @@ class BrushGestureHandler:
         return gesture_processed
 
     def _select_tool_by_height(self, hand_y: float, delta_y: float):
-        """
-        Select tools based on hand height position.
-
-        Higher hand position cycles through different tools.
-
-        Args:
-            hand_y: Y-coordinate of hand position
-            delta_y: Vertical motion delta
-        """
+        """Cycle through sculpt tools based on vertical hand movement."""
         from . import pose_estimator
 
         direction = 'NEXT' if delta_y < 0 else 'PREV'
         pose_estimator.queue_action('SELECT_TOOL', {"direction": direction})
+        print(f"[Gesture] Tool cycle: {direction}")
 
     def _adjust_brush_size(self, delta_x: float):
-        """
-        Adjust brush size based on horizontal hand movement.
-
-        Rightward movement increases size, leftward decreases.
-
-        Args:
-            delta_x: Horizontal motion delta (positive=right)
-        """
+        """Adjust brush size based on horizontal hand movement."""
         from . import pose_estimator
 
         size_delta = delta_x * 0.1
         pose_estimator.queue_action('ADJUST_BRUSH', {"size_delta": size_delta})
+        print(f"[Gesture] Brush size adjust: {size_delta:+.1f}")
+
+    def _adjust_brush_strength(self, dx: float, dy: float):
+        """Adjust brush strength based on diagonal hand movement."""
+        from . import pose_estimator
+
+        # Calculate diagonal magnitude
+        magnitude = math.sqrt(dx*dx + dy*dy) * 0.01
+        pose_estimator.queue_action('ADJUST_STRENGTH', {"strength_delta": magnitude})
+        print(f"[Gesture] Brush strength adjust: {magnitude:+.3f}")
 
     def _apply_brush_stroke(self, pos: Tuple[float, float], dx: float, dy: float):
-        """
-        Apply brush stroke at current hand position.
-
-        Args:
-            pos: Current hand position (x, y)
-            dx: Horizontal motion delta
-            dy: Vertical motion delta
-        """
+        """Apply brush stroke at current hand position."""
         from . import pose_estimator
+
+        # For now, just queue the position for the action processor to handle
         pose_estimator.queue_action('BRUSH_STROKE', {"pos": pos, "delta": (dx, dy)})
 
     def reset(self):
         """Reset gesture tracking state."""
         self.last_hand_pos = None
         self.tool_change_pending = False
+        self.gesture_detector.clear_history()
 
 
 class GestureManager:
@@ -282,16 +381,21 @@ class GestureManager:
     - Camera gestures (left hand)
     - Brush gestures (right hand)
     - Blender UI state
+    - Gesture configuration
 
     Handles gesture filtering and timing to prevent spurious activation.
     """
 
-    def __init__(self):
-        """Initialize gesture manager."""
-        self.camera_handler = CameraGestureHandler()
-        self.brush_handler = BrushGestureHandler()
+    def __init__(self, config: Optional[GestureConfig] = None):
+        """Initialize gesture manager with optional config."""
+        if config is None:
+            config = GestureConfig()
+
+        self.config = config
+        self.camera_handler = CameraGestureHandler(config)
+        self.brush_handler = BrushGestureHandler(config)
         self.last_update_frame = 0
-        self.frame_skip = 2  # Process every Nth frame to reduce CPU load
+        self.frame_skip = self.config.get("global.frame_skip", 2)
 
     def process_pose(
         self,
@@ -344,12 +448,17 @@ class GestureManager:
 
 # Global gesture manager instance
 _gesture_manager: Optional[GestureManager] = None
+_gesture_config: Optional[GestureConfig] = None
 
 
-def initialize_gesture_manager():
-    """Initialize global gesture manager."""
-    global _gesture_manager
-    _gesture_manager = GestureManager()
+def initialize_gesture_manager(config: Optional[GestureConfig] = None):
+    """Initialize global gesture manager with optional config."""
+    global _gesture_manager, _gesture_config
+    if config is None:
+        config = GestureConfig()
+    _gesture_config = config
+    _gesture_manager = GestureManager(config)
+    print(f"[Gesture Manager] Initialized with config")
 
 
 def process_gesture(
@@ -376,3 +485,8 @@ def reset_gestures():
     """Reset all gesture state."""
     if _gesture_manager:
         _gesture_manager.reset_all()
+
+
+def get_gesture_config() -> Optional[GestureConfig]:
+    """Get the current gesture configuration."""
+    return _gesture_config

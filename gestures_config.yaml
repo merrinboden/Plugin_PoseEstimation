@@ -1,0 +1,108 @@
+# Gesture Mapping Configuration
+# This file defines how hand movements map to Blender actions
+
+# Global settings
+global:
+  sensitivity_multiplier: 1.0  # 0.5 = slower, 2.0 = faster
+  enable_dynamic_gestures: true
+  enable_direct_cursor: true
+
+# Left hand: Camera navigation
+camera_control:
+  left_hand:
+    horizontal_pan:
+      threshold: 25  # pixels of movement before triggering
+      sensitivity: 2.0  # viewport units per pixel
+      direction: "horizontal"
+    vertical_pan:
+      threshold: 25
+      sensitivity: 2.0
+      direction: "vertical"
+
+# Right hand: Sculpt mode controls
+sculpt_mode:
+  right_hand:
+    # Horizontal movement adjusts brush size
+    brush_size:
+      direction: "horizontal"
+      threshold: 20
+      sensitivity: 0.5
+      min_size: 1
+      max_size: 500
+    # Vertical movement cycles through tools
+    tool_selection:
+      direction: "vertical"
+      threshold: 30
+      tools:
+        - "draw"
+        - "draw_sharp"
+        - "draw_grab"
+        - "grab"
+        - "smooth"
+        - "crease"
+    # Diagonal/depth movement controls brush strength
+    brush_strength:
+      direction: "diagonal"
+      threshold: 35
+      sensitivity: 0.3
+      property: "strength"
+      min_value: 0.0
+      max_value: 1.0
+    # Hand position maps directly to brush cursor
+    brush_cursor:
+      enabled: true
+      mode: "direct_mapping"  # hand position = brush location
+      offset: [0, 0]  # viewport offset
+
+# Right hand: Object mode controls
+object_mode:
+  right_hand:
+    action: "object_interaction"
+    # Future: selection, transformation
+
+# Dynamic gesture patterns
+dynamic_gestures:
+  # Fast horizontal swipe left
+  swipe_left:
+    min_distance: 100  # pixels traveled
+    max_duration: 500  # milliseconds
+    threshold: 30
+    direction: "left"
+    action: "undo"
+    enabled: true
+
+  # Fast horizontal swipe right
+  swipe_right:
+    min_distance: 100
+    max_duration: 500
+    threshold: 30
+    direction: "right"
+    action: "redo"
+    enabled: true
+
+  # Circular motion
+  circular_motion:
+    min_radius: 80  # pixels
+    rotations: 0.5  # minimum full rotations to detect
+    threshold: 40
+    action: "mode_toggle"  # toggle between Sculpt/Object
+    enabled: true
+
+  # Quick tap (minimal movement)
+  tap:
+    max_distance: 20  # pixels (movement staying small)
+    duration_ms: 200  # how long hand stays still
+    threshold: 10
+    action: "apply"
+    enabled: false  # disabled for now
+
+# Thresholds per gesture type (override global if specified)
+thresholds:
+  pan_left: 25
+  pan_right: 25
+  pan_up: 25
+  pan_down: 25
+  brush_size_horizontal: 20
+  tool_select_vertical: 30
+  brush_strength_diagonal: 35
+  swipe: 30
