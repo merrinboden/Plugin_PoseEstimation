@@ -1,19 +1,17 @@
 """
-UI Panel Module
-===============
+UI Panel Module - Refactored for Service Client
+================================================
 
-Provides Blender interface components for pose estimation control.
+Provides Blender interface for connecting to pose estimation service.
 
 Includes:
-- Main control panel in 3D viewport sidebar
-- Start/stop buttons for pose estimation
-- Real-time status display (FPS, detection quality)
-- Configuration adjustments (confidence threshold, smoothing)
-- Error display and feedback messages
+- Service connection management (host, port)
+- Start/stop buttons for service client
+- Real-time connection status
+- Gesture monitoring display
 """
 
 import bpy
-from . import pose_estimator, gesture_handler
 
 
 class PoseEstimationPanel(bpy.types.Panel):
@@ -31,21 +29,29 @@ class PoseEstimationPanel(bpy.types.Panel):
     bl_category = 'Pose Estimation'
 
     def draw(self, context):
-        """
-        Draw panel layout with all UI elements.
-
-        Args:
-            context: Blender context containing scene properties
-        """
+        """Draw panel layout with service connection UI."""
         layout = self.layout
         props = context.scene.pose_est_props
 
         # Title and status section
         row = layout.row()
         if props.is_active:
-            row.label(text="Status: ACTIVE", icon='PLAY')
+            row.label(text="Status: CONNECTED", icon='PLAY')
         else:
-            row.label(text="Status: INACTIVE", icon='PAUSE')
+            row.label(text="Status: DISCONNECTED", icon='PAUSE')
+
+        # Service connection settings
+        box = layout.box()
+        box.label(text="Service Connection", icon='NETWORK_DRIVE')
+        col = box.column(align=True)
+        col.prop(props, "service_host", text="Host")
+        col.prop(props, "service_port", text="Port")
+
+        # Connection status
+        if props.is_active:
+            box.label(text="Connected to service", icon='CHECKMARK')
+        else:
+            box.label(text="Not connected", icon='ERROR')
 
         # Start/Stop buttons
         row = layout.row(align=True)
@@ -54,224 +60,219 @@ class PoseEstimationPanel(bpy.types.Panel):
         if props.is_active:
             row.operator(
                 "wm.stop_pose_estimation",
-                text="Stop Estimation",
+                text="Disconnect",
                 icon='PAUSE'
             )
         else:
             row.operator(
                 "wm.start_pose_estimation",
-                text="Start Estimation",
+                text="Connect to Service",
                 icon='PLAY'
             )
 
         # Separator
         layout.separator()
 
-        # Configuration section
+        # Gesture monitoring section
         box = layout.box()
-        box.label(text="Configuration", icon='PREFERENCES')
-
+        box.label(text="Hand Detection", icon='HAND')
         col = box.column(align=True)
-        col.prop(props, "webcam_index", text="Webcam")
-        col.prop(props, "confidence_threshold", text="Confidence", slider=True)
-        col.prop(props, "smoothing_factor", text="Smoothing", slider=True)
-        col.prop(props, "debug_visual", text="Show Debug Window")
-
-        # Separator
-        layout.separator()
-
-        # Gesture mode selection
-        box = layout.box()
-        box.label(text="Control Mode", icon='HAND')
-        box.prop(props, "gesture_mode", expand=True)
-
-        # Info section
-        layout.separator()
-        box = layout.box()
-        box.label(text="Information", icon='INFO')
-
-        col = box.column(align=True)
-        col.label(text="Left Hand: Camera Control")
-        col.label(text="Right Hand: Tool Control")
+        col.label(text=f"Left Hand Confidence: {props.left_hand_confidence:.2f}")
+        col.label(text=f"Right Hand Confidence: {props.right_hand_confidence:.2f}")
 
         # Help section
         layout.separator()
         col = layout.column(align=True)
         col.scale_y = 0.8
-        col.label(text="• Move left hand to pan camera")
-        col.label(text="• Move right hand to paint/sculpt")
-        col.label(text="• Keep hands in view for best results")
+        col.label(text="How to Use:")
+        col.label(text="1. Start pose service: python -m pose_service.server")
+        col.label(text="2. Click 'Connect to Service' button")
+        col.label(text="3. Move hands in front of webcam")
+        col.label(text="4. Use gestures to control Blender")
 
 
 class StartPoseEstimationOperator(bpy.types.Operator):
-    """
-    Operator to start pose estimation.
-
-    Initializes pose estimator and gesture manager, begins webcam capture
-    and MediaPipe processing. Updates UI to show active state.
-
-    Properties:
-        bl_idname: "wm.start_pose_estimation"
-        bl_label: Display name in UI
-    """
+    """Connect to pose estimation service."""
 
     bl_idname = "wm.start_pose_estimation"
-    bl_label = "Start Pose Estimation"
+    bl_label = "Connect to Service"
 
     def execute(self, context):
-        """
-        Execute pose estimation startup.
-
-        Performs initialization and reports success/failure to user.
-
-        Args:
-            context: Blender context
-
-        Returns:
-            {'FINISHED'} on success, {'CANCELLED'} on error
-        """
+        """Connect to service and start receiving pose updates."""
         try:
             props = context.scene.pose_est_props
 
-            # Load gesture configuration
-            import pathlib
-            config_path = pathlib.Path(__file__).parent / "gestures_config.yaml"
-            gesture_config = gesture_handler.GestureConfig(str(config_path))
+            # Import WebSocket client
+            from ..blender_client.websocket_client import PoseServiceClient
 
-            # Initialize pose estimator with current settings
-            pose_estimator.initialize_estimator(
-                webcam_index=props.webcam_index,
-                confidence_threshold=props.confidence_threshold,
-                debug_visual=props.debug_visual
+            # Create client
+            client = PoseServiceClient(
+                host=props.service_host,
+                port=props.service_port
             )
 
-            # Initialize gesture recognition with config
-            gesture_handler.initialize_gesture_manager(gesture_config)
+            # Start connection
+            client.start()
 
-            # Start estimation in background thread
-            pose_estimator.start_estimation()
-            pose_estimator.start_gesture_processing()
+            # Store client in window manager for access in timer
+            context.window_manager.pose_client = client
+
+            # Register timer to process pose updates
+            bpy.app.timers.register(process_pose_updates)
 
             props.is_active = True
 
-            self.report({'INFO'}, "Pose estimation started")
-            print("[Pose Estimation] Started successfully")
+            self.report({'INFO'}, f"Connecting to service at {props.service_host}:{props.service_port}")
+            print(f"[Blender] Connecting to service at ws://{props.service_host}:{props.service_port}/ws/pose")
 
             return {'FINISHED'}
 
         except Exception as e:
-            self.report({'ERROR'}, f"Failed to start: {str(e)}")
-            print(f"[Pose Estimation] Error: {e}")
+            self.report({'ERROR'}, f"Failed to connect: {str(e)}")
+            print(f"[Blender] Error: {e}")
             import traceback
             traceback.print_exc()
             return {'CANCELLED'}
 
 
 class StopPoseEstimationOperator(bpy.types.Operator):
-    """
-    Operator to stop pose estimation.
-
-    Halts webcam capture, stops MediaPipe processing, and resets gesture state.
-    Updates UI to show inactive state and releases GPU/CPU resources.
-
-    Properties:
-        bl_idname: "wm.stop_pose_estimation"
-        bl_label: Display name in UI
-    """
+    """Disconnect from pose estimation service."""
 
     bl_idname = "wm.stop_pose_estimation"
-    bl_label = "Stop Pose Estimation"
+    bl_label = "Disconnect from Service"
 
     def execute(self, context):
-        """
-        Execute pose estimation shutdown.
-
-        Stops background processing and cleanup resources.
-
-        Args:
-            context: Blender context
-
-        Returns:
-            {'FINISHED'} on success
-        """
+        """Disconnect from service."""
         try:
             props = context.scene.pose_est_props
 
-            # Stop pose estimation
-            pose_estimator.stop_estimation()
+            # Stop client connection
+            client = context.window_manager.pose_client
+            if client:
+                client.stop()
+                print("[Blender] Disconnected from service")
 
-            # Reset gesture state
-            gesture_handler.reset_gestures()
+            # Unregister timer
+            try:
+                bpy.app.timers.unregister(process_pose_updates)
+            except:
+                pass
 
             props.is_active = False
 
-            self.report({'INFO'}, "Pose estimation stopped")
-            print("[Pose Estimation] Stopped")
+            self.report({'INFO'}, "Disconnected from service")
+            print("[Blender] Disconnected")
 
             return {'FINISHED'}
 
         except Exception as e:
-            self.report({'ERROR'}, f"Error stopping: {str(e)}")
-            print(f"[Pose Estimation] Stop error: {e}")
+            self.report({'ERROR'}, f"Error disconnecting: {str(e)}")
+            print(f"[Blender] Error: {e}")
             return {'CANCELLED'}
 
 
-class PoseEstimationDebugPanel(bpy.types.Panel):
-    """
-    Debug panel for monitoring pose estimation performance.
 
-    Shows real-time statistics:
-    - Current FPS of pose detection
-    - Hand confidence scores
-    - Frame count
-    - Detection validity status
+def process_pose_updates():
+    """Timer callback: process pose updates from service and execute gestures."""
+    try:
+        context = bpy.context
+        client = context.window_manager.pose_client
 
-    Only visible when "Debug" option is enabled.
-    """
+        if not client or not client.connected:
+            return 0.016  # Keep polling
 
-    bl_label = "Debug Info"
-    bl_idname = "VIEW3D_PT_pose_estimation_debug"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = 'Pose Estimation'
-    bl_options = {'DEFAULT_CLOSED'}
+        pose = client.get_latest_pose()
+        if not pose:
+            return 0.016  # No update this frame
 
-    def draw(self, context):
-        """
-        Draw debug information panel.
-
-        Args:
-            context: Blender context
-        """
-        layout = self.layout
+        # Update confidence scores in properties for UI display
         props = context.scene.pose_est_props
+        props.left_hand_confidence = pose.get('left_hand_confidence', 0.0)
+        props.right_hand_confidence = pose.get('right_hand_confidence', 0.0)
 
-        if not props.is_active:
-            layout.label(text="Estimation not running", icon='INFO')
-            return
+        # Execute detected gestures
+        for gesture in pose.get('gestures', []):
+            data = pose.get('gesture_data', {}).get(gesture, {})
 
-        # Get current pose
-        pose = pose_estimator.get_pose()
+            if gesture == 'PAN_LEFT':
+                pan_viewport(context, 'LEFT', data.get('amount', 10))
+            elif gesture == 'PAN_RIGHT':
+                pan_viewport(context, 'RIGHT', data.get('amount', 10))
+            elif gesture == 'PAN_UP':
+                pan_viewport(context, 'UP', data.get('amount', 10))
+            elif gesture == 'PAN_DOWN':
+                pan_viewport(context, 'DOWN', data.get('amount', 10))
+            elif gesture == 'ADJUST_BRUSH':
+                adjust_brush_size(context, data.get('size_delta', 0))
+            elif gesture == 'ADJUST_STRENGTH':
+                adjust_brush_strength(context, data.get('strength_delta', 0))
+            elif gesture == 'SELECT_TOOL':
+                cycle_tool(context, data.get('direction', 'NEXT'))
 
-        box = layout.box()
-        box.label(text="Detection Status", icon='CAMERA_DATA')
+    except Exception as e:
+        print(f"[Pose Update] Error: {e}")
 
-        col = box.column(align=True)
-        col.label(text=f"Frame: {pose.timestamp}")
-        col.label(text=f"Valid: {'Yes' if pose.is_valid else 'No'}")
+    return 0.016  # Call again in ~16ms
 
-        # Hand confidence display
-        box = layout.box()
-        box.label(text="Hand Confidence", icon='HAND')
 
-        col = box.column(align=True)
-        col.label(text=f"Left Hand: {pose.left_hand_confidence:.2f}")
-        col.label(text=f"Right Hand: {pose.right_hand_confidence:.2f}")
+def pan_viewport(context, direction, amount):
+    """Pan the 3D viewport camera."""
+    try:
+        for area in context.screen.areas:
+            if area.type != 'VIEW_3D':
+                continue
+            for region in area.regions:
+                if region.type != 'WINDOW':
+                    continue
 
-        # Hand positions
-        box = layout.box()
-        box.label(text="Hand Positions", icon='EMPTY_DATA')
+                rv3d = region.data
+                if not rv3d:
+                    continue
 
-        col = box.column(align=True)
-        col.label(text=f"Left: ({pose.left_hand_pos[0]:.1f}, {pose.left_hand_pos[1]:.1f})")
-        col.label(text=f"Right: ({pose.right_hand_pos[0]:.1f}, {pose.right_hand_pos[1]:.1f})")
+                scale = amount * 0.01  # Scale to viewport units
+
+                if direction == 'LEFT':
+                    rv3d.view_location.x -= scale
+                elif direction == 'RIGHT':
+                    rv3d.view_location.x += scale
+                elif direction == 'UP':
+                    rv3d.view_location.y += scale
+                elif direction == 'DOWN':
+                    rv3d.view_location.y -= scale
+
+    except Exception as e:
+        print(f"[Pan] Error: {e}")
+
+
+def adjust_brush_size(context, delta):
+    """Adjust brush size in sculpt mode."""
+    try:
+        if context.mode == 'SCULPT':
+            brush = context.tool_settings.sculpt.brush
+            if brush:
+                new_size = max(1, min(500, brush.size + delta))
+                brush.size = new_size
+    except Exception as e:
+        print(f"[Brush Size] Error: {e}")
+
+
+def adjust_brush_strength(context, delta):
+    """Adjust brush strength in sculpt mode."""
+    try:
+        if context.mode == 'SCULPT':
+            brush = context.tool_settings.sculpt.brush
+            if brush:
+                new_strength = max(0.0, min(1.0, brush.strength + delta))
+                brush.strength = new_strength
+    except Exception as e:
+        print(f"[Brush Strength] Error: {e}")
+
+
+def cycle_tool(context, direction):
+    """Cycle through sculpt tools."""
+    try:
+        if context.mode == 'SCULPT':
+            print(f"[Tool] Cycling {direction}")
+            # Tool cycling logic would go here
+    except Exception as e:
+        print(f"[Tool Cycle] Error: {e}")
